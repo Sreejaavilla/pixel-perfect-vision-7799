@@ -44,7 +44,7 @@ function Dashboard() {
   const [view, setView] = useState<View>("overview");
   const unlocked = (id: number) => id <= completed + 1;
   const progress = Math.round((completed / STAGES.length) * 100);
-  const current = STAGES[Math.min(completed, STAGES.length - 1)];
+  const current = STAGES[Math.min(completed, STAGES.length - 1)]!;
   const reportUnlocked = completed === STAGES.length;
 
   const open = (v: View) => {

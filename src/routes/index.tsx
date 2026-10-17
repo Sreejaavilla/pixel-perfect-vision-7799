@@ -1,5 +1,8 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useState, type ComponentType } from "react";
+import { useMemo, useState, type ComponentType } from "react";
+import { AccessInvestigation } from "../components/AccessInvestigation";
+import { EvidenceLab } from "../components/EvidenceLab";
+import { WitnessInvestigation } from "../components/WitnessInvestigation";
 import {
   LayoutDashboard,
   Network,
@@ -15,18 +18,26 @@ import {
   CircleDot,
   Fingerprint,
   ArrowLeft,
-  XCircle,
+  Search,
+  Bookmark,
+  BookmarkCheck,
+  Filter,
+  Clock3,
+  AlertTriangle,
+  Send,
+  RotateCcw,
+  ClipboardList,
 } from "lucide-react";
 
 export const Route = createFileRoute("/")({
   head: () => ({
     meta: [
-      { title: "The Breach Files — Case 07: The Glasshouse Incident" },
+      { title: "The Breach Files - Case 07: The Glasshouse Incident" },
       {
         name: "description",
         content: "Interactive cyber-forensics simulation at NovaCorp.",
       },
-      { property: "og:title", content: "The Breach Files — Case 07" },
+      { property: "og:title", content: "The Breach Files - Case 07" },
       {
         property: "og:description",
         content: "Investigate the Glasshouse Incident at NovaCorp.",
@@ -39,6 +50,8 @@ export const Route = createFileRoute("/")({
 });
 
 type Icon = ComponentType<{ className?: string }>;
+type View = "overview" | "report" | string;
+
 type Stage = {
   id: number;
   key: string;
@@ -46,14 +59,26 @@ type Stage = {
   desc: string;
   icon: Icon;
 };
-type View = "overview" | "report" | string;
+
+type EvidenceCategory = "NETWORK" | "DNS" | "AUTH" | "EXPORT" | "SYSTEM";
+
+type EvidenceRecord = {
+  id: string;
+  time: string;
+  category: EvidenceCategory;
+  source: string;
+  title: string;
+  summary: string;
+  detail: string;
+  tags: string[];
+};
 
 const STAGES: Stage[] = [
   {
     id: 1,
     key: "network",
     title: "Network Investigation",
-    desc: "Review network activity around the incident window.",
+    desc: "Correlate network, DNS, authentication, and export records.",
     icon: Network,
   },
   {
@@ -86,82 +111,187 @@ const STAGES: Stage[] = [
   },
 ];
 
-const EVIDENCE = [
-  { label: "Network events", count: 5, icon: Network },
-  { label: "Access-control records", count: 12, icon: KeyRound },
-  { label: "Evidence artifacts", count: 8, icon: FileSearch },
+const EVIDENCE_SUMMARY = [
+  { label: "Network events", count: 6, icon: Network },
+  { label: "Access records", count: 15, icon: KeyRound },
+  { label: "Evidence artifacts", count: 14, icon: FileSearch },
   { label: "Witness interviews", count: 4, icon: Users },
 ];
 
-const NETWORK_EVENTS = [
+const EVIDENCE: EvidenceRecord[] = [
   {
+    id: "SCH-01",
     time: "09:32:08",
-    title: "Scheduled workflow starts",
+    category: "SYSTEM",
     source: "ExportBridge scheduler",
+    title: "Scheduled job initiated",
+    summary: "A scheduled ExportBridge workflow starts.",
     detail:
-      "A scheduled ExportBridge job begins under the service identity svc-exportbridge. This record does not identify the human who originally configured or triggered the workflow.",
+      "Job ID EB-2041 entered RUNNING state at 09:32:08 UTC. The execution identity is svc-exportbridge. The scheduler record does not identify a person who configured the job or establish who may have changed its parameters.",
+    tags: ["scheduled", "service identity"],
   },
   {
+    id: "DNS-02",
+    time: "09:33:11",
+    category: "DNS",
+    source: "Internal DNS resolver",
+    title: "Internal storage hostname resolved",
+    summary: "The worker resolves an internal storage hostname.",
+    detail:
+      "Host export-worker-03 queried vault-store.novacorp.internal. The resolver returned an internal address. This is consistent with internal service communication; it is not evidence of an external destination.",
+    tags: ["internal DNS", "storage"],
+  },
+  {
+    id: "NET-03",
+    time: "09:34:26",
+    category: "NETWORK",
+    source: "Network flow collector",
+    title: "Worker connects to internal storage",
+    summary: "An internal connection is recorded.",
+    detail:
+      "A TCP connection from export-worker-03 to the internal storage address lasted 18 seconds. The flow record contains endpoints, timestamps, and byte counts, but no application-level confirmation of which document was read.",
+    tags: ["internal traffic", "flow record"],
+  },
+  {
+    id: "APP-04",
     time: "09:36:14",
-    title: "Restricted resource requested",
-    source: "Internal application gateway",
+    category: "EXPORT",
+    source: "Application gateway",
+    title: "Restricted roadmap requested",
+    summary: "A request targets Project Glasshouse.",
     detail:
-      "A request associated with svc-exportbridge targets the Project Glasshouse roadmap. This establishes a resource request, not proof that the entire document was successfully retrieved.",
+      "A gateway request associated with svc-exportbridge targets /projects/glasshouse/roadmap. The gateway record confirms the request reached the application layer. By itself, this record does not prove the complete document was returned.",
+    tags: ["resource request", "Glasshouse"],
   },
   {
+    id: "AUTH-05",
+    time: "09:36:18",
+    category: "AUTH",
+    source: "Identity audit service",
+    title: "Service identity token accepted",
+    summary: "The application accepts a service identity token.",
+    detail:
+      "The token subject is svc-exportbridge and the audience is the internal document service. The record does not contain an employee username. Token acceptance shows which identity was presented, not which person initiated the underlying activity.",
+    tags: ["service account", "token"],
+  },
+  {
+    id: "DOC-06",
     time: "09:37:02",
-    title: "Resource read recorded",
+    category: "EXPORT",
     source: "Document audit log",
+    title: "Successful document read",
+    summary: "The roadmap audit entry reports a successful read.",
     detail:
-      "The document audit record reports a successful read of the restricted roadmap by svc-exportbridge.",
+      "The document audit service records READ_SUCCESS for the Glasshouse roadmap under svc-exportbridge. This is stronger evidence of access than the gateway request alone. It does not establish external transmission or malicious intent.",
+    tags: ["read success", "audit"],
   },
   {
+    id: "NET-07",
+    time: "09:37:45",
+    category: "NETWORK",
+    source: "Network flow collector",
+    title: "Short connection to an internal endpoint",
+    summary: "A second internal connection is observed.",
+    detail:
+      "The worker connects to an internal package service. The connection is brief and its byte count is modest. The flow record alone cannot establish whether the roadmap contents were transferred in this connection.",
+    tags: ["internal traffic", "incomplete context"],
+  },
+  {
+    id: "DNS-08",
+    time: "09:38:02",
+    category: "DNS",
+    source: "Internal DNS resolver",
+    title: "Public domain lookup by another host",
+    summary: "A different workstation queries a public domain.",
+    detail:
+      "The source is design-laptop-12, not export-worker-03. The query is for updates.example.net. The record has no demonstrated link to the Glasshouse workflow. Similar timestamps do not establish that the two activities are related.",
+    tags: ["different host", "possible decoy"],
+  },
+  {
+    id: "EXP-09",
     time: "09:39:41",
-    title: "Export package staged",
+    category: "EXPORT",
     source: "ExportBridge worker",
+    title: "Package staged for processing",
+    summary: "The workflow records an export package as staged.",
     detail:
-      "The workflow records that an export package was staged. This event alone does not establish that the package was transmitted to or received by an external party.",
+      "Job EB-2041 records PACKAGE_STAGED with package ID PKG-8842. Staging establishes that a package reached a workflow state ready for further processing. This record does not establish that a remote destination received the package.",
+    tags: ["package staged", "PKG-8842"],
   },
   {
-    time: "09:40:00",
-    title: "Incident flagged",
-    source: "Security monitoring",
+    id: "NET-10",
+    time: "09:39:53",
+    category: "NETWORK",
+    source: "Egress monitoring",
+    title: "No matching transfer in the supplied window",
+    summary: "The supplied egress extract has no matching transfer entry.",
     detail:
-      "A security alert flags activity involving the restricted project. The alert is a lead for investigation, not independent proof of malicious intent.",
+      "The provided extract covers the monitored egress interfaces from 09:30:00 to 09:45:00 UTC. It contains no flow matching package ID PKG-8842 because the flow collector does not record package IDs. It also contains no obvious large outbound flow correlated to export-worker-03 in this window. This extract alone cannot prove that no transfer occurred through any possible path.",
+    tags: ["bounded search", "absence of evidence"],
+  },
+  {
+    id: "AUTH-11",
+    time: "09:40:00",
+    category: "AUTH",
+    source: "Security monitoring",
+    title: "Investigation alert generated",
+    summary: "Monitoring flags the workflow activity.",
+    detail:
+      "An alert was generated after the combination of a restricted-resource event and export staging. The alert is a detection signal that warrants investigation. It is not independent proof of theft, an external recipient, or a malicious employee.",
+    tags: ["alert", "detection"],
+  },
+  {
+    id: "SYS-12",
+    time: "09:40:31",
+    category: "SYSTEM",
+    source: "ExportBridge worker",
+    title: "Job reports successful completion",
+    summary: "The workflow ends with a successful status.",
+    detail:
+      "Job EB-2041 reports COMPLETED. The worker's status refers to its own workflow execution. The supplied log does not define COMPLETED as confirmation of external delivery, and it contains no recipient acknowledgement.",
+    tags: ["job status", "semantic ambiguity"],
+  },
+  {
+    id: "NET-13",
+    time: "09:41:06",
+    category: "NETWORK",
+    source: "Proxy summary",
+    title: "Large outbound flow from a different system",
+    summary: "A large transfer is recorded, but attribution is unclear.",
+    detail:
+      "A proxy summary reports a large outbound flow from build-cache-02 to a vendor update endpoint. The source host differs from export-worker-03. The record has no package ID, document identifier, or recipient confirmation linking it to PKG-8842.",
+    tags: ["large transfer", "different host"],
+  },
+  {
+    id: "AUTH-14",
+    time: "09:42:20",
+    category: "AUTH",
+    source: "Identity audit service",
+    title: "Interactive login by an analyst",
+    summary: "An analyst signs in to the case-management portal.",
+    detail:
+      "An interactive login by analyst account analyst.lee is recorded against the internal case-management portal. The supplied event does not show access to the roadmap or control of job EB-2041. A username appearing in the same time window is not enough to attribute the incident to that person.",
+    tags: ["interactive login", "attribution"],
+  },
+  {
+    id: "SYS-15",
+    time: "09:44:12",
+    category: "SYSTEM",
+    source: "Configuration audit",
+    title: "Workflow configuration changed earlier",
+    summary: "A configuration version differs from the previous version.",
+    detail:
+      "The configuration audit shows ExportBridge version 17 was active during the incident window. A previous version had a different export scope. The supplied record does not include the full change diff, approver identity, or evidence that this version change caused the event. Obtain the full audit history before assigning responsibility.",
+    tags: ["configuration", "missing context"],
   },
 ];
 
-const NETWORK_QUESTIONS = [
-  {
-    prompt: "What is the strongest conclusion supported by these records?",
-    options: [
-      "An external attacker definitely stole the roadmap.",
-      "The service workflow accessed the restricted resource and staged an export package.",
-      "A named employee deliberately leaked the roadmap.",
-      "The package was confirmed received by an external recipient.",
-    ],
-    correct: 1,
-    explanation:
-      "The audit and workflow records support access and staging. They do not establish external receipt, a human initiator, or malicious intent.",
-  },
-  {
-    prompt:
-      "What should investigators verify before claiming data exfiltration?",
-    options: [
-      "Assume staging means the package left the company.",
-      "Close the case because a scheduled workflow is always safe.",
-      "Correlate transfer, destination, and recipient-side evidence with the export event.",
-      "Identify an employee based only on the service account name.",
-    ],
-    correct: 2,
-    explanation:
-      "A staged package is not the same as a completed external transfer. Investigators need corroborating transmission and destination evidence.",
-  },
-];
+const CATEGORIES = ["ALL", "NETWORK", "DNS", "AUTH", "EXPORT", "SYSTEM"] as const;
 
 function Dashboard() {
   const [completed, setCompleted] = useState(0);
   const [view, setView] = useState<View>("overview");
+  const [reportSubmitted, setReportSubmitted] = useState(false);
 
   const unlocked = (id: number) => id <= completed + 1;
   const progress = Math.round((completed / STAGES.length) * 100);
@@ -181,12 +311,7 @@ function Dashboard() {
     icon: Icon;
     locked: boolean;
   }[] = [
-    {
-      key: "overview",
-      label: "Overview",
-      icon: LayoutDashboard,
-      locked: false,
-    },
+    { key: "overview", label: "Overview", icon: LayoutDashboard, locked: false },
     ...STAGES.map((stage) => ({
       key: stage.key,
       label: stage.title,
@@ -208,9 +333,7 @@ function Dashboard() {
       <aside className="flex w-60 shrink-0 flex-col border-r border-sidebar-border bg-sidebar">
         <div className="flex h-14 items-center gap-2 border-b border-sidebar-border px-4">
           <Fingerprint className="h-5 w-5 text-primary" />
-          <span className="font-mono text-sm font-bold tracking-widest">
-            BREACH FILES
-          </span>
+          <span className="font-mono text-sm font-bold tracking-widest">BREACH FILES</span>
         </div>
 
         <nav className="flex-1 space-y-0.5 p-2">
@@ -233,15 +356,14 @@ function Dashboard() {
         </nav>
 
         <div className="border-t border-sidebar-border p-4 font-mono text-[10px] uppercase tracking-widest text-muted-foreground">
-          Forensics Terminal v0.2
+          Forensics Terminal v0.3
         </div>
       </aside>
 
       <div className="flex min-w-0 flex-1 flex-col">
         <header className="flex min-h-14 flex-wrap items-center gap-4 border-b border-border px-6 py-3">
           <div className="font-mono text-sm tracking-widest">
-            THE BREACH FILES{" "}
-            <span className="text-muted-foreground">/ CASE 07</span>
+            THE BREACH FILES <span className="text-muted-foreground">/ CASE 07</span>
           </div>
 
           <div className="flex items-center gap-2 rounded-sm border border-primary/40 px-2 py-1 font-mono text-[11px] tracking-widest text-primary">
@@ -250,13 +372,9 @@ function Dashboard() {
           </div>
 
           <div className="ml-auto flex items-center gap-3">
-            <span className="font-mono text-xs text-muted-foreground">
-              PROGRESS
-            </span>
+            <span className="font-mono text-xs text-muted-foreground">PROGRESS</span>
             <ProgressBar value={progress} className="w-40" />
-            <span className="w-10 font-mono text-xs text-primary">
-              {progress}%
-            </span>
+            <span className="w-10 font-mono text-xs text-primary">{progress}%</span>
           </div>
         </header>
 
@@ -274,9 +392,14 @@ function Dashboard() {
           ) : view === "report" ? (
             <Panel title="Final Report" icon={FileText}>
               <p className="text-sm text-muted-foreground">
-                The final report workspace will be available after all five
-                investigation stages are implemented.
+                The final case-report workspace will be connected after all investigation stages are
+                implemented.
               </p>
+              {reportSubmitted && (
+                <p className="mt-3 text-sm text-primary">
+                  Your local report draft has been submitted.
+                </p>
+              )}
             </Panel>
           ) : (
             <Overview completed={completed} unlocked={unlocked} open={open} />
@@ -286,15 +409,12 @@ function Dashboard() {
         <footer className="flex min-h-9 flex-wrap items-center gap-4 border-t border-border bg-sidebar px-6 py-2 font-mono text-[11px] tracking-wider text-muted-foreground">
           <span>
             STATUS:{" "}
-            <span className="text-primary">
-              {reportUnlocked ? "READY FOR REPORT" : "OPEN"}
-            </span>
+            <span className="text-primary">{reportUnlocked ? "READY FOR REPORT" : "OPEN"}</span>
           </span>
           <span>
             STAGE:{" "}
             <span className="text-foreground">
-              {String(current.id).padStart(2, "0")} —{" "}
-              {current.title.toUpperCase()}
+              {String(current.id).padStart(2, "0")} - {current.title.toUpperCase()}
             </span>
           </span>
           <span className="ml-auto">
@@ -322,12 +442,10 @@ function Overview({
     <div className="mx-auto max-w-6xl space-y-6">
       <section className="border border-border bg-card p-6">
         <div className="mb-1 font-mono text-xs tracking-widest text-warning">
-          CASE 07 — BRIEFING
+          CASE 07 - BRIEFING
         </div>
 
-        <h1 className="font-mono text-3xl font-bold tracking-wide">
-          THE GLASSHOUSE INCIDENT
-        </h1>
+        <h1 className="font-mono text-3xl font-bold tracking-wide">THE GLASSHOUSE INCIDENT</h1>
 
         <dl className="mt-5 grid grid-cols-2 gap-px border border-border bg-border md:grid-cols-4">
           {[
@@ -352,11 +470,10 @@ function Overview({
         </dl>
 
         <p className="mt-5 max-w-3xl text-sm leading-relaxed text-muted-foreground">
-          At 09:40 UTC, a restricted internal project roadmap at NovaCorp was
-          flagged after activity involving an export workflow. Your task as a
-          digital forensic investigator is to reconstruct what happened,
-          separate confirmed facts from assumptions, and recommend a defensible
-          response.
+          At 09:40 UTC, a restricted internal project roadmap at NovaCorp was flagged after activity
+          involving an export workflow. Reconstruct what happened, separate confirmed facts from
+          assumptions, and recommend a defensible response. The evidence may be incomplete or
+          misleading when viewed in isolation.
         </p>
       </section>
 
@@ -373,9 +490,7 @@ function Overview({
                 <div
                   key={stage.id}
                   className={`flex items-center gap-4 border bg-card p-4 transition-colors ${
-                    available && !isDone
-                      ? "border-primary/50"
-                      : "border-border"
+                    available && !isDone ? "border-primary/50" : "border-border"
                   } ${!available ? "opacity-50" : ""}`}
                 >
                   <span className="font-mono text-lg text-muted-foreground">
@@ -383,21 +498,15 @@ function Overview({
                   </span>
 
                   <stage.icon
-                    className={`h-5 w-5 ${
-                      available ? "text-primary" : "text-muted-foreground"
-                    }`}
+                    className={`h-5 w-5 ${available ? "text-primary" : "text-muted-foreground"}`}
                   />
 
                   <div className="min-w-0 flex-1">
                     <div className="text-sm font-semibold">{stage.title}</div>
-                    <div className="text-xs text-muted-foreground">
-                      {stage.desc}
-                    </div>
+                    <div className="text-xs text-muted-foreground">{stage.desc}</div>
                   </div>
 
-                  <StatusTag
-                    state={isDone ? "done" : available ? "open" : "locked"}
-                  />
+                  <StatusTag state={isDone ? "done" : available ? "open" : "locked"} />
 
                   <button
                     onClick={() => open(stage.key)}
@@ -416,31 +525,23 @@ function Overview({
         <div className="space-y-6">
           <Panel title="Mission" icon={Target}>
             <p className="text-sm leading-relaxed text-muted-foreground">
-              Reconstruct the incident timeline, determine whether restricted
-              data was accessed or delivered externally, evaluate competing
-              explanations, and recommend a defensible response.
+              Reconstruct the incident timeline, determine whether restricted data was accessed or
+              delivered externally, evaluate competing explanations, and recommend a defensible
+              response.
             </p>
           </Panel>
 
           <div>
             <SectionLabel>
-              Evidence Summary{" "}
-              <span className="text-warning">· simulated</span>
+              Evidence Summary <span className="text-warning">- simulated</span>
             </SectionLabel>
 
             <div className="grid grid-cols-2 gap-2">
-              {EVIDENCE.map((item) => (
-                <div
-                  key={item.label}
-                  className="border border-border bg-card p-3"
-                >
+              {EVIDENCE_SUMMARY.map((item) => (
+                <div key={item.label} className="border border-border bg-card p-3">
                   <item.icon className="h-4 w-4 text-muted-foreground" />
-                  <div className="mt-2 font-mono text-2xl text-primary">
-                    {item.count}
-                  </div>
-                  <div className="text-[11px] text-muted-foreground">
-                    {item.label}
-                  </div>
+                  <div className="mt-2 font-mono text-2xl text-primary">{item.count}</div>
+                  <div className="text-[11px] text-muted-foreground">{item.label}</div>
                 </div>
               ))}
             </div>
@@ -467,7 +568,7 @@ function StageView({
   onComplete: () => void;
 }) {
   return (
-    <div className="mx-auto max-w-4xl space-y-4">
+    <div className="mx-auto max-w-6xl space-y-4">
       <button
         onClick={onBack}
         className="flex items-center gap-1 font-mono text-xs text-muted-foreground hover:text-primary"
@@ -477,9 +578,15 @@ function StageView({
 
       {stage.id === 1 ? (
         <NetworkInvestigation done={done} onComplete={onComplete} />
+      ) : stage.id === 2 ? (
+        <AccessInvestigation done={done} onComplete={onComplete} />
+      ) : stage.id === 3 ? (
+        <EvidenceLab done={done} onComplete={onComplete} />
+      ) : stage.id === 4 ? (
+        <WitnessInvestigation done={done} onComplete={onComplete} />
       ) : (
         <Panel
-          title={`Stage ${String(stage.id).padStart(2, "0")} — ${stage.title}`}
+          title={`Stage ${String(stage.id).padStart(2, "0")} - ${stage.title}`}
           icon={stage.icon}
         >
           <p className="text-sm text-muted-foreground">{stage.desc}</p>
@@ -492,224 +599,524 @@ function StageView({
   );
 }
 
-function NetworkInvestigation({
-  done,
-  onComplete,
-}: {
-  done: boolean;
-  onComplete: () => void;
-}) {
-  const [selectedEvent, setSelectedEvent] = useState(0);
-  const [answers, setAnswers] = useState<Record<number, number>>({});
-  const [checked, setChecked] = useState(false);
+function NetworkInvestigation({ done, onComplete }: { done: boolean; onComplete: () => void }) {
+  const [search, setSearch] = useState("");
+  const [category, setCategory] = useState<(typeof CATEGORIES)[number]>("ALL");
+  const [bookmarks, setBookmarks] = useState<string[]>([]);
+  const [selectedId, setSelectedId] = useState("SCH-01");
+  const [showBookmarkedOnly, setShowBookmarkedOnly] = useState(false);
+  const [timelineIds, setTimelineIds] = useState<string[]>([]);
+  const [finding, setFinding] = useState("");
+  const [evidenceIds, setEvidenceIds] = useState("");
+  const [alternative, setAlternative] = useState("");
+  const [nextEvidence, setNextEvidence] = useState("");
+  const [reasoning, setReasoning] = useState("");
+  const [submitted, setSubmitted] = useState(false);
 
-  // Grade only the option the participant actually selected.
-  // Option indexes are zero-based: Question 1 = B (1), Question 2 = C (2).
-  const correctCount = NETWORK_QUESTIONS.reduce((score, question, index) => {
-    const selectedOption = answers[index];
-    return score + (selectedOption === question.correct ? 1 : 0);
-  }, 0);
+  const selectedRecord = EVIDENCE.find((record) => record.id === selectedId) ?? EVIDENCE[0]!;
 
-  const allAnswered = NETWORK_QUESTIONS.every(
-    (_, index) => answers[index] !== undefined,
-  );
+  const filteredEvidence = useMemo(() => {
+    const query = search.trim().toLowerCase();
 
-  const passed = allAnswered && correctCount === NETWORK_QUESTIONS.length;
+    return EVIDENCE.filter((record) => {
+      const matchesCategory = category === "ALL" || record.category === category;
+      const matchesBookmark = !showBookmarkedOnly || bookmarks.includes(record.id);
+      const searchable = [
+        record.id,
+        record.time,
+        record.category,
+        record.source,
+        record.title,
+        record.summary,
+        record.detail,
+        ...record.tags,
+      ]
+        .join(" ")
+        .toLowerCase();
+
+      return matchesCategory && matchesBookmark && (!query || searchable.includes(query));
+    });
+  }, [search, category, bookmarks, showBookmarkedOnly]);
+
+  const timelineRecords = timelineIds
+    .map((id) => EVIDENCE.find((record) => record.id === id))
+    .filter((record): record is EvidenceRecord => Boolean(record))
+    .sort((a, b) => a.time.localeCompare(b.time));
+
+  const reportComplete =
+    finding.trim().length > 0 &&
+    evidenceIds.trim().length > 0 &&
+    alternative.trim().length >= 20 &&
+    nextEvidence.trim().length >= 20 &&
+    reasoning.trim().length >= 40;
+
+  const toggleBookmark = (id: string) => {
+    setBookmarks((previous) =>
+      previous.includes(id) ? previous.filter((item) => item !== id) : [...previous, id],
+    );
+  };
+
+  const toggleTimeline = (id: string) => {
+    setTimelineIds((previous) =>
+      previous.includes(id) ? previous.filter((item) => item !== id) : [...previous, id],
+    );
+  };
+
+  const resetReport = () => {
+    setFinding("");
+    setEvidenceIds("");
+    setAlternative("");
+    setNextEvidence("");
+    setReasoning("");
+    setSubmitted(false);
+  };
+
+  const reportScore = () => {
+    const submittedIds = evidenceIds
+      .toUpperCase()
+      .split(/[\s,;]+/)
+      .map((item) => item.trim())
+      .filter(Boolean);
+
+    const supportedIds = ["SCH-01", "AUTH-05", "DOC-06", "EXP-09"];
+    const usefulIds = submittedIds.filter((id) => supportedIds.includes(id));
+    const hasStaging = submittedIds.includes("EXP-09");
+    const hasRead = submittedIds.includes("DOC-06");
+    const avoidsOverclaim =
+      finding === "Access and staging are supported; external delivery is unconfirmed.";
+    const includesAlternative = alternative.trim().length >= 20;
+    const includesNextStep = nextEvidence.trim().length >= 20;
+    const explainsReasoning = reasoning.trim().length >= 40;
+
+    return (
+      usefulIds.length * 10 +
+      (hasStaging ? 10 : 0) +
+      (hasRead ? 10 : 0) +
+      (avoidsOverclaim ? 20 : 0) +
+      (includesAlternative ? 10 : 0) +
+      (includesNextStep ? 10 : 0) +
+      (explainsReasoning ? 10 : 0)
+    );
+  };
+
+  const score = Math.min(100, reportScore());
 
   return (
     <div className="space-y-5">
-      <Panel title="Stage 01 — Network Investigation" icon={Network}>
-        <p className="text-sm leading-relaxed text-muted-foreground">
-          Reconstruct the activity surrounding the Glasshouse incident. Select
-          each event to inspect its record, then answer both questions using
-          only what the evidence supports.
-        </p>
-
-        <div className="mt-4 flex flex-wrap gap-2 font-mono text-[10px] tracking-widest">
-          <span className="border border-primary/40 px-2 py-1 text-primary">
-            CASE BF-007
-          </span>
-          <span className="border border-border px-2 py-1 text-muted-foreground">
-            SIMULATED EVIDENCE
-          </span>
-        </div>
-      </Panel>
-
-      <Panel title="Event Timeline" icon={Network}>
-        <div className="space-y-2">
-          {NETWORK_EVENTS.map((event, index) => (
-            <button
-              key={event.time}
-              onClick={() => setSelectedEvent(index)}
-              className={`flex w-full items-start gap-3 border p-3 text-left transition-colors ${
-                selectedEvent === index
-                  ? "border-primary bg-primary/5"
-                  : "border-border hover:border-primary/50"
-              }`}
-            >
-              <span className="min-w-[76px] font-mono text-xs text-primary">
-                {event.time}
+      <Panel title="Stage 01 - Network Investigation" icon={Network}>
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div className="max-w-3xl">
+            <p className="text-sm leading-relaxed text-muted-foreground">
+              You have received a mixed evidence bundle. Some records are relevant, others are
+              incomplete, and some may be coincidental. Inspect the records, bookmark evidence,
+              build a defensible timeline, and submit your assessment. Do not treat correlation as
+              proof of causation.
+            </p>
+            <div className="mt-4 flex flex-wrap gap-2 font-mono text-[10px] tracking-widest">
+              <span className="border border-primary/40 px-2 py-1 text-primary">CASE BF-007</span>
+              <span className="border border-border px-2 py-1 text-muted-foreground">
+                15 RECORDS
               </span>
-
-              <span className="min-w-0 flex-1">
-                <span className="block text-sm font-semibold">
-                  {event.title}
-                </span>
-                <span className="mt-1 block text-xs text-muted-foreground">
-                  {event.source}
-                </span>
+              <span className="border border-warning/40 px-2 py-1 text-warning">
+                INVESTIGATOR MODE
               </span>
-
-              <ChevronRight className="mt-1 h-4 w-4 shrink-0 text-muted-foreground" />
-            </button>
-          ))}
-        </div>
-
-        <div className="mt-4 border border-primary/30 bg-background p-4">
-          <div className="font-mono text-[10px] tracking-widest text-primary">
-            SELECTED RECORD — {NETWORK_EVENTS[selectedEvent].time} UTC
+            </div>
           </div>
-
-          <h3 className="mt-2 text-sm font-semibold">
-            {NETWORK_EVENTS[selectedEvent].title}
-          </h3>
-
-          <p className="mt-2 text-xs leading-relaxed text-muted-foreground">
-            {NETWORK_EVENTS[selectedEvent].detail}
-          </p>
-
-          <div className="mt-3 font-mono text-[10px] text-muted-foreground">
-            SOURCE: {NETWORK_EVENTS[selectedEvent].source}
+          <div className="min-w-32 border border-border bg-background p-3">
+            <div className="font-mono text-[10px] tracking-widest text-muted-foreground">
+              BOOKMARKED
+            </div>
+            <div className="mt-1 font-mono text-2xl text-primary">
+              {bookmarks.length}
+              <span className="text-sm text-muted-foreground"> / 15</span>
+            </div>
           </div>
         </div>
       </Panel>
 
-      <Panel title="Investigator Assessment" icon={Target}>
-        <p className="mb-4 text-xs text-muted-foreground">
-          Select one answer per question. Both must be correct to complete this
-          stage.
-        </p>
-
-        <div className="space-y-6">
-          {NETWORK_QUESTIONS.map((question, questionIndex) => (
-            <section key={question.prompt}>
-              <div className="font-mono text-[10px] tracking-widest text-primary">
-                QUESTION 0{questionIndex + 1}
-              </div>
-
-              <h3 className="mt-2 text-sm font-semibold">
-                {question.prompt}
-              </h3>
-
-              <div className="mt-3 space-y-2">
-                {question.options.map((option, optionIndex) => {
-                  const isSelected = answers[questionIndex] === optionIndex;
-                  const isCorrectOption = question.correct === optionIndex;
-                  const selectedCorrect =
-                    checked && isSelected && isCorrectOption;
-                  const selectedWrong =
-                    checked && isSelected && !isCorrectOption;
-
-                  return (
-                    <button
-                      key={option}
-                      onClick={() => {
-                        if (done) return;
-
-                        setAnswers((previous) => ({
-                          ...previous,
-                          [questionIndex]: optionIndex,
-                        }));
-                        setChecked(false);
-                      }}
-                      disabled={done}
-                      className={`flex w-full items-start gap-3 border p-3 text-left text-xs leading-relaxed transition-colors ${
-                        selectedCorrect
-                          ? "border-primary bg-primary/10"
-                          : selectedWrong
-                            ? "border-destructive bg-destructive/10"
-                            : isSelected
-                              ? "border-primary bg-primary/5"
-                              : "border-border hover:border-primary/50"
-                      } disabled:cursor-default`}
-                    >
-                      <span className="flex h-5 w-5 shrink-0 items-center justify-center border border-border font-mono text-[10px]">
-                        {String.fromCharCode(65 + optionIndex)}
-                      </span>
-
-                      <span className="flex-1">{option}</span>
-
-                      {selectedCorrect && (
-                        <CheckCircle2 className="h-4 w-4 shrink-0 text-primary" />
-                      )}
-
-                      {selectedWrong && (
-                        <span className="flex shrink-0 items-center gap-1 font-mono text-[10px] text-destructive">
-                          <XCircle className="h-4 w-4" />
-                          INCORRECT
-                        </span>
-                      )}
-                    </button>
-                  );
-                })}
-              </div>
-
-              {checked && (
-                <p className="mt-2 border-l-2 border-primary pl-3 text-xs leading-relaxed text-muted-foreground">
-                  {question.explanation}
-                </p>
-              )}
-            </section>
-          ))}
-        </div>
-
-        {checked && (
-          <div className="mt-5 border border-border p-3">
-            <div className="font-mono text-sm text-primary">
-              SCORE: {correctCount * 50}/100
+      <div className="grid gap-5 xl:grid-cols-[1.05fr_1fr]">
+        <Panel title="Evidence Vault" icon={FileSearch}>
+          <div className="space-y-3">
+            <div className="relative">
+              <Search className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
+              <input
+                value={search}
+                onChange={(event) => setSearch(event.target.value)}
+                placeholder="Search IDs, hosts, details, keywords..."
+                className="w-full border border-border bg-background py-2.5 pl-10 pr-3 text-sm outline-none focus:border-primary"
+              />
             </div>
 
-            <p className="mt-1 text-xs text-muted-foreground">
-              {passed
-                ? "Assessment passed. You may record completion."
-                : `Assessment not passed. ${correctCount} of ${NETWORK_QUESTIONS.length} answers correct. Review your selected answers and try again.`}
+            <div className="flex flex-wrap gap-1.5">
+              {CATEGORIES.map((item) => (
+                <button
+                  key={item}
+                  onClick={() => setCategory(item)}
+                  className={`border px-2 py-1.5 font-mono text-[10px] tracking-wider ${
+                    category === item
+                      ? "border-primary bg-primary/10 text-primary"
+                      : "border-border text-muted-foreground hover:border-primary/50"
+                  }`}
+                >
+                  {item}
+                </button>
+              ))}
+            </div>
+
+            <button
+              onClick={() => setShowBookmarkedOnly((value) => !value)}
+              className={`flex items-center gap-2 border px-3 py-2 font-mono text-[10px] tracking-wider ${
+                showBookmarkedOnly
+                  ? "border-primary text-primary"
+                  : "border-border text-muted-foreground"
+              }`}
+            >
+              <Filter className="h-3 w-3" />
+              {showBookmarkedOnly ? "SHOW ALL RECORDS" : "BOOKMARKS ONLY"}
+            </button>
+
+            <div className="flex items-center justify-between font-mono text-[10px] text-muted-foreground">
+              <span>{filteredEvidence.length} RECORDS MATCH</span>
+              <span>UTC / READ-ONLY</span>
+            </div>
+
+            <div className="max-h-[510px] space-y-2 overflow-y-auto pr-1">
+              {filteredEvidence.map((record) => (
+                <div
+                  key={record.id}
+                  className={`border transition-colors ${
+                    selectedId === record.id
+                      ? "border-primary bg-primary/5"
+                      : "border-border bg-background hover:border-primary/50"
+                  }`}
+                >
+                  <button onClick={() => setSelectedId(record.id)} className="w-full p-3 text-left">
+                    <div className="flex items-start gap-3">
+                      <div className="min-w-0 flex-1">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="font-mono text-xs font-bold text-primary">
+                            {record.id}
+                          </span>
+                          <span className="border border-border px-1.5 py-0.5 font-mono text-[9px] text-muted-foreground">
+                            {record.category}
+                          </span>
+                          <span className="font-mono text-[10px] text-muted-foreground">
+                            {record.time}
+                          </span>
+                        </div>
+                        <div className="mt-1 text-sm font-semibold">{record.title}</div>
+                        <div className="mt-1 text-xs leading-relaxed text-muted-foreground">
+                          {record.summary}
+                        </div>
+                      </div>
+                      {bookmarks.includes(record.id) && (
+                        <BookmarkCheck className="h-4 w-4 shrink-0 text-primary" />
+                      )}
+                    </div>
+                  </button>
+                </div>
+              ))}
+
+              {filteredEvidence.length === 0 && (
+                <div className="border border-dashed border-border p-6 text-center text-sm text-muted-foreground">
+                  No records match those filters.
+                </div>
+              )}
+            </div>
+          </div>
+        </Panel>
+
+        <div className="space-y-5">
+          <Panel title="Record Inspection" icon={Search}>
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <div className="font-mono text-xs text-primary">{selectedRecord.id}</div>
+                <h3 className="mt-1 text-base font-semibold">{selectedRecord.title}</h3>
+              </div>
+              <button
+                onClick={() => toggleBookmark(selectedRecord.id)}
+                className="flex items-center gap-2 border border-border px-3 py-2 font-mono text-[10px] tracking-wider hover:border-primary"
+              >
+                {bookmarks.includes(selectedRecord.id) ? (
+                  <BookmarkCheck className="h-4 w-4 text-primary" />
+                ) : (
+                  <Bookmark className="h-4 w-4" />
+                )}
+                {bookmarks.includes(selectedRecord.id) ? "BOOKMARKED" : "BOOKMARK"}
+              </button>
+            </div>
+
+            <div className="mt-4 grid grid-cols-2 gap-px border border-border bg-border">
+              <Metadata label="Timestamp" value={`${selectedRecord.time} UTC`} />
+              <Metadata label="Record type" value={selectedRecord.category} />
+              <div className="col-span-2 bg-background p-3">
+                <div className="font-mono text-[9px] uppercase tracking-widest text-muted-foreground">
+                  Source
+                </div>
+                <div className="mt-1 text-xs">{selectedRecord.source}</div>
+              </div>
+            </div>
+
+            <div className="mt-4">
+              <div className="font-mono text-[10px] tracking-widest text-muted-foreground">
+                FULL RECORD
+              </div>
+              <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
+                {selectedRecord.detail}
+              </p>
+            </div>
+
+            <div className="mt-4 flex flex-wrap gap-1.5">
+              {selectedRecord.tags.map((tag) => (
+                <span
+                  key={tag}
+                  className="border border-border px-2 py-1 font-mono text-[9px] text-muted-foreground"
+                >
+                  {tag}
+                </span>
+              ))}
+            </div>
+
+            <button
+              onClick={() => toggleTimeline(selectedRecord.id)}
+              className={`mt-4 flex w-full items-center justify-center gap-2 border px-3 py-2.5 font-mono text-xs tracking-wider ${
+                timelineIds.includes(selectedRecord.id)
+                  ? "border-primary bg-primary/10 text-primary"
+                  : "border-border hover:border-primary hover:text-primary"
+              }`}
+            >
+              <Clock3 className="h-4 w-4" />
+              {timelineIds.includes(selectedRecord.id)
+                ? "REMOVE FROM RECONSTRUCTED TIMELINE"
+                : "ADD TO RECONSTRUCTED TIMELINE"}
+            </button>
+          </Panel>
+
+          <Panel title="Timeline Reconstruction" icon={Clock3}>
+            <p className="text-xs leading-relaxed text-muted-foreground">
+              Select the records you believe matter to the incident. The timeline orders them by
+              timestamp; your job is to decide which events are causally relevant and which are
+              merely coincidental.
+            </p>
+
+            <div className="mt-4 flex items-center justify-between">
+              <span className="font-mono text-[10px] tracking-widest text-muted-foreground">
+                YOUR TIMELINE
+              </span>
+              <span className="font-mono text-xs text-primary">
+                {timelineRecords.length} SELECTED
+              </span>
+            </div>
+
+            {timelineRecords.length > 0 ? (
+              <div className="mt-3 space-y-2">
+                {timelineRecords.map((record, index) => (
+                  <div key={record.id} className="flex items-start gap-3">
+                    <div className="flex flex-col items-center">
+                      <span className="flex h-6 w-6 items-center justify-center rounded-full border border-primary/50 font-mono text-[10px] text-primary">
+                        {index + 1}
+                      </span>
+                      {index < timelineRecords.length - 1 && (
+                        <span className="h-7 w-px bg-border" />
+                      )}
+                    </div>
+                    <div className="min-w-0 flex-1 border border-border bg-background p-2.5">
+                      <div className="font-mono text-[10px] text-primary">
+                        {record.time} - {record.id}
+                      </div>
+                      <div className="mt-1 text-xs font-semibold">{record.title}</div>
+                    </div>
+                    <button
+                      onClick={() => toggleTimeline(record.id)}
+                      className="p-1 text-muted-foreground hover:text-destructive"
+                      aria-label={`Remove ${record.id} from timeline`}
+                    >
+                      <span className="text-xs">X</span>
+                    </button>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="mt-3 border border-dashed border-border p-5 text-center">
+                <Clock3 className="mx-auto h-5 w-5 text-muted-foreground" />
+                <p className="mt-2 text-xs text-muted-foreground">
+                  Inspect records and add relevant events here.
+                </p>
+              </div>
+            )}
+          </Panel>
+        </div>
+      </div>
+
+      <Panel title="Investigator's Report" icon={ClipboardList}>
+        <div className="mb-5 flex items-start gap-3 border border-warning/30 bg-warning/5 p-3">
+          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-warning" />
+          <p className="text-xs leading-relaxed text-muted-foreground">
+            Your report is evaluated for evidence selection and reasoning. A confident accusation
+            without supporting records is not a strong forensic conclusion. Cite record IDs exactly
+            as shown in the vault.
+          </p>
+        </div>
+
+        <div className="grid gap-5 md:grid-cols-2">
+          <div className="space-y-2">
+            <label className="font-mono text-[10px] uppercase tracking-widest text-muted-foreground">
+              01 / Primary conclusion
+            </label>
+            <select
+              value={finding}
+              onChange={(event) => setFinding(event.target.value)}
+              className="w-full border border-border bg-background p-3 text-sm outline-none focus:border-primary"
+            >
+              <option value="">Select your conclusion...</option>
+              <option value="Access and staging are supported; external delivery is unconfirmed.">
+                Access and staging are supported; external delivery is unconfirmed.
+              </option>
+              <option value="External theft is confirmed by the supplied records.">
+                External theft is confirmed by the supplied records.
+              </option>
+              <option value="The alert is a false positive and no investigation is needed.">
+                The alert is a false positive and no investigation is needed.
+              </option>
+              <option value="A named employee deliberately leaked the roadmap.">
+                A named employee deliberately leaked the roadmap.
+              </option>
+            </select>
+          </div>
+
+          <div className="space-y-2">
+            <label className="font-mono text-[10px] uppercase tracking-widest text-muted-foreground">
+              02 / Evidence IDs
+            </label>
+            <input
+              value={evidenceIds}
+              onChange={(event) => setEvidenceIds(event.target.value)}
+              placeholder="Example: DOC-06, EXP-09, NET-10"
+              className="w-full border border-border bg-background p-3 text-sm outline-none focus:border-primary"
+            />
+            <p className="text-[10px] text-muted-foreground">
+              Separate IDs with commas or spaces. Explain their significance below.
+            </p>
+          </div>
+
+          <div className="space-y-2">
+            <label className="font-mono text-[10px] uppercase tracking-widest text-muted-foreground">
+              03 / Alternative explanation
+            </label>
+            <textarea
+              value={alternative}
+              onChange={(event) => setAlternative(event.target.value)}
+              rows={4}
+              placeholder="What is another plausible explanation for the observed activity? Which facts support or weaken it?"
+              className="w-full resize-y border border-border bg-background p-3 text-sm leading-relaxed outline-none focus:border-primary"
+            />
+            <p className="text-[10px] text-muted-foreground">Minimum 20 characters.</p>
+          </div>
+
+          <div className="space-y-2">
+            <label className="font-mono text-[10px] uppercase tracking-widest text-muted-foreground">
+              04 / Next evidence request
+            </label>
+            <textarea
+              value={nextEvidence}
+              onChange={(event) => setNextEvidence(event.target.value)}
+              rows={4}
+              placeholder="Name the specific log, artifact, or corroboration you would request next, and why."
+              className="w-full resize-y border border-border bg-background p-3 text-sm leading-relaxed outline-none focus:border-primary"
+            />
+            <p className="text-[10px] text-muted-foreground">Minimum 20 characters.</p>
+          </div>
+
+          <div className="space-y-2 md:col-span-2">
+            <label className="font-mono text-[10px] uppercase tracking-widest text-muted-foreground">
+              05 / Reasoning and timeline
+            </label>
+            <textarea
+              value={reasoning}
+              onChange={(event) => setReasoning(event.target.value)}
+              rows={5}
+              placeholder="Connect the records in sequence. Distinguish what is confirmed, what is inferred, and what remains unknown. Cite specific evidence IDs."
+              className="w-full resize-y border border-border bg-background p-3 text-sm leading-relaxed outline-none focus:border-primary"
+            />
+            <p className="text-[10px] text-muted-foreground">
+              Minimum 40 characters. A list of IDs alone is not a complete explanation.
+            </p>
+          </div>
+        </div>
+
+        {submitted && (
+          <div className="mt-5 border border-primary/40 bg-primary/5 p-4">
+            <div className="flex items-center gap-2 font-mono text-sm text-primary">
+              <CheckCircle2 className="h-4 w-4" />
+              REPORT RECORDED LOCALLY
+            </div>
+            <div className="mt-2 font-mono text-2xl">
+              {score}/100 <span className="text-xs text-muted-foreground">AUTOMATED CHECK</span>
+            </div>
+            <p className="mt-2 text-xs leading-relaxed text-muted-foreground">
+              This preliminary score checks selected evidence IDs and report completeness. It does
+              not fully judge the quality of your reasoning. A facilitator should review the written
+              explanation before awarding final points.
             </p>
           </div>
         )}
 
         <div className="mt-5 flex flex-wrap gap-3">
           <button
-            onClick={() => setChecked(true)}
-            disabled={!allAnswered || done}
-            className="border border-primary px-4 py-2 font-mono text-xs font-bold tracking-wider text-primary hover:bg-primary/10 disabled:cursor-not-allowed disabled:opacity-40"
+            onClick={() => {
+              setSubmitted(false);
+              if (reportComplete) setSubmitted(true);
+            }}
+            disabled={!reportComplete}
+            className="flex items-center gap-2 bg-primary px-4 py-2.5 font-mono text-xs font-bold tracking-wider text-primary-foreground disabled:cursor-not-allowed disabled:opacity-40"
           >
-            CHECK ANSWERS
+            <Send className="h-4 w-4" />
+            SUBMIT INVESTIGATION REPORT
           </button>
-
-          {checked && !passed && !done && (
-            <button
-              onClick={() => setChecked(false)}
-              className="border border-border px-4 py-2 font-mono text-xs tracking-wider hover:border-primary"
-            >
-              REVIEW & RETRY
-            </button>
-          )}
-
-          {done ? (
+          <button
+            onClick={resetReport}
+            className="flex items-center gap-2 border border-border px-4 py-2.5 font-mono text-xs tracking-wider hover:border-primary"
+          >
+            <RotateCcw className="h-4 w-4" />
+            RESET REPORT
+          </button>
+          {done && (
             <span className="flex items-center gap-2 px-3 py-2 font-mono text-xs text-primary">
               <CheckCircle2 className="h-4 w-4" />
               STAGE COMPLETE
             </span>
-          ) : checked && passed ? (
-            <button
-              onClick={onComplete}
-              className="bg-primary px-4 py-2 font-mono text-xs font-bold tracking-wider text-primary-foreground"
-            >
-              COMPLETE STAGE 01
-            </button>
-          ) : null}
+          )}
+        </div>
+
+        <div className="mt-4 flex items-start gap-2 text-[10px] leading-relaxed text-muted-foreground">
+          <AlertTriangle className="mt-0.5 h-3 w-3 shrink-0" />
+          This prototype stores progress in the current page state only. Reports are not yet sent to
+          a server and will be lost on refresh.
         </div>
       </Panel>
+
+      {!done && submitted && (
+        <div className="flex justify-end">
+          <button
+            onClick={onComplete}
+            className="flex items-center gap-2 border border-primary px-4 py-3 font-mono text-xs font-bold tracking-wider text-primary hover:bg-primary/10"
+          >
+            MARK STAGE 01 COMPLETE
+            <ChevronRight className="h-4 w-4" />
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function Metadata({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="bg-background p-3">
+      <div className="font-mono text-[9px] uppercase tracking-widest text-muted-foreground">
+        {label}
+      </div>
+      <div className="mt-1 break-words font-mono text-xs">{value}</div>
     </div>
   );
 }
@@ -726,9 +1133,7 @@ function Panel({
   return (
     <section className="border border-border bg-card p-5">
       <div className="mb-3 flex items-center gap-2 font-mono text-xs uppercase tracking-widest text-foreground">
-        {IconComponent && (
-          <IconComponent className="h-4 w-4 text-primary" />
-        )}
+        {IconComponent && <IconComponent className="h-4 w-4 text-primary" />}
         {title}
       </div>
       {children}
@@ -774,19 +1179,10 @@ function StatusTag({ state }: { state: "done" | "open" | "locked" }) {
   );
 }
 
-function ProgressBar({
-  value,
-  className = "",
-}: {
-  value: number;
-  className?: string;
-}) {
+function ProgressBar({ value, className = "" }: { value: number; className?: string }) {
   return (
     <div className={`h-1.5 overflow-hidden bg-muted ${className}`}>
-      <div
-        className="h-full bg-primary glow transition-all"
-        style={{ width: `${value}%` }}
-      />
+      <div className="h-full bg-primary glow transition-all" style={{ width: `${value}%` }} />
     </div>
   );
 }

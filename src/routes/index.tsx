@@ -291,7 +291,6 @@ const CATEGORIES = ["ALL", "NETWORK", "DNS", "AUTH", "EXPORT", "SYSTEM"] as cons
 function Dashboard() {
   const [completed, setCompleted] = useState(0);
   const [view, setView] = useState<View>("overview");
-  const [reportSubmitted, setReportSubmitted] = useState(false);
 
   const unlocked = (id: number) => id <= completed + 1;
   const progress = Math.round((completed / STAGES.length) * 100);
@@ -390,17 +389,15 @@ function Dashboard() {
               }}
             />
           ) : view === "report" ? (
-            <Panel title="Final Report" icon={FileText}>
-              <p className="text-sm text-muted-foreground">
-                The final case-report workspace will be connected after all investigation stages are
-                implemented.
-              </p>
-              {reportSubmitted && (
-                <p className="mt-3 text-sm text-primary">
-                  Your local report draft has been submitted.
-                </p>
-              )}
-            </Panel>
+            <div className="mx-auto max-w-6xl space-y-4">
+              <button
+                onClick={() => setView("overview")}
+                className="flex items-center gap-1 font-mono text-xs text-muted-foreground hover:text-primary"
+              >
+                <ArrowLeft className="h-3 w-3" /> BACK TO OVERVIEW
+              </button>
+              <IncidentResponse done={true} onComplete={() => {}} initialPhase={5} />
+            </div>
           ) : (
             <Overview completed={completed} unlocked={unlocked} open={open} />
           )}
@@ -584,6 +581,8 @@ function StageView({
         <EvidenceLab done={done} onComplete={onComplete} />
       ) : stage.id === 4 ? (
         <WitnessInvestigation done={done} onComplete={onComplete} />
+      ) : stage.id === 5 ? (
+        <IncidentResponse done={done} onComplete={onComplete} />
       ) : (
         <Panel
           title={`Stage ${String(stage.id).padStart(2, "0")} - ${stage.title}`}

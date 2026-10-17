@@ -1,30 +1,13 @@
-import { useMemo, useState, type ComponentType } from "react";
+import { useMemo, useState } from "react";
 import {
-  ShieldAlert,
-  ShieldCheck,
   AlertTriangle,
   CheckCircle2,
-  XCircle,
   RotateCcw,
   Send,
-  FileText,
   ChevronRight,
   ChevronLeft,
-  Server,
-  HardDrive,
-  Database,
-  Clock,
-  HelpCircle,
   Info,
-  Archive,
-  Trash2,
-  Flame,
   Check,
-  Search,
-  Sliders,
-  Scale,
-  Sparkles,
-  Lock,
 } from "lucide-react";
 import {
   CONTAINMENT_ACTIONS,
@@ -33,10 +16,7 @@ import {
   FACT_HYPOTHESIS_ITEMS,
   RESPONSE_DECISION_OPTIONS,
   SAFE_RECOVERY_STEPS,
-  type ContainmentAction,
-  type PreservationSource,
-  type FactHypothesisItem,
-  type ResponseDecisionOption,
+  calculateIncidentResponseScore,
 } from "../lib/stage5-response";
 
 type Phase = 1 | 2 | 3 | 4 | 5;
@@ -72,12 +52,14 @@ interface Phase4State {
 export function IncidentResponse({
   done,
   onComplete,
+  initialPhase = 1,
 }: {
   done: boolean;
   onComplete: () => void;
+  initialPhase?: Phase;
 }) {
-  const [currentPhase, setCurrentPhase] = useState<Phase>(1);
-  const [highestVisitedPhase, setHighestVisitedPhase] = useState<Phase>(1);
+  const [currentPhase, setCurrentPhase] = useState<Phase>(initialPhase);
+  const [highestVisitedPhase, setHighestVisitedPhase] = useState<Phase>(done ? 5 : initialPhase);
   const [showResetConfirm, setShowResetConfirm] = useState(false);
   const [isSubmitted, setIsSubmitted] = useState(false);
 
@@ -114,7 +96,8 @@ export function IncidentResponse({
       "SCP-03": "Verify export-worker-03 was the solitary container executing job EB-2041.",
       "SCP-04": "Confirm STS instance profile used; rotate temporary session credentials.",
       "SCP-05": "Correlate border gateway flow logs and request partner SFTP transfer records.",
-      "SCP-06": "Attribute incident to lack of peer review on commit a94f2b1 and overly broad wildcard.",
+      "SCP-06":
+        "Attribute incident to lack of peer review on commit a94f2b1 and overly broad wildcard.",
     },
     selectedRecoveryStepIds: ["REC-01", "REC-02", "REC-03", "REC-04", "REC-05"],
     recoveryPlanRationale: "",
@@ -128,22 +111,9 @@ export function IncidentResponse({
     nextInvestigationSteps: "",
   });
 
-  // Navigate to phase with unlocked rules
-  const navigateToPhase = (target: Phase) => {
-    if (target <= highestVisitedPhase || target <= currentPhase + 1) {
-      setCurrentPhase(target);
-      if (target > highestVisitedPhase) {
-        setHighestVisitedPhase(target);
-      }
-    }
-  };
-
   // Validation checks per phase
   const isPhase1Valid = useMemo(() => {
-    return (
-      phase1.selectedActionIds.length >= 2 &&
-      phase1.justification.trim().length >= 20
-    );
+    return phase1.selectedActionIds.length >= 2 && phase1.justification.trim().length >= 20;
   }, [phase1]);
 
   const isPhase2Valid = useMemo(() => {
@@ -156,7 +126,7 @@ export function IncidentResponse({
 
   const isPhase3Valid = useMemo(() => {
     const answeredCount = Object.values(phase3.scopeResponses).filter(
-      (v) => v.trim().length >= 10,
+      (v) => v && v.trim().length >= 10,
     ).length;
     return (
       answeredCount >= 4 &&
@@ -166,7 +136,7 @@ export function IncidentResponse({
   }, [phase3]);
 
   const isPhase4Valid = useMemo(() => {
-    const classifiedCount = Object.keys(phase4.classifications).length;
+    const classifiedCount = Object.values(phase4.classifications).filter(Boolean).length;
     return (
       Boolean(phase4.decisionId) &&
       classifiedCount >= 8 &&
@@ -175,108 +145,28 @@ export function IncidentResponse({
     );
   }, [phase4]);
 
+  const isPhaseValid = (phaseNum: number) => {
+    if (phaseNum === 1) return isPhase1Valid;
+    if (phaseNum === 2) return isPhase2Valid;
+    if (phaseNum === 3) return isPhase3Valid;
+    if (phaseNum === 4) return isPhase4Valid;
+    return true;
+  };
+
+  // Navigate to phase with unlocked rules
+  const navigateToPhase = (target: Phase) => {
+    const canAdvance = target === currentPhase + 1 && isPhaseValid(currentPhase);
+    if (done || target <= highestVisitedPhase || canAdvance) {
+      setCurrentPhase(target);
+      if (target > highestVisitedPhase) {
+        setHighestVisitedPhase(target);
+      }
+    }
+  };
+
   // Scoring calculation (Max 100)
   const scoreBreakdown = useMemo(() => {
-    // 1. Containment (max 20)
-    let containmentScore = 0;
-    const appropriateSelected = phase1.selectedActionIds.filter((id) => {
-      const action = CONTAINMENT_ACTIONS.find((a) => a.id === id);
-      return action?.category === "appropriate";
-    });
-    containmentScore += appropriateSelected.length * 4; // up to 20
-
-    // Penalties for destructive or disproportionate actions
-    if (phase1.selectedActionIds.includes("ACT-06")) containmentScore -= 6; // disproportionate shutdown
-    if (phase1.selectedActionIds.includes("ACT-07")) containmentScore -= 10; // deleting staged package
-    if (phase1.selectedActionIds.includes("ACT-08")) containmentScore -= 10; // wiping worker
-    containmentScore = Math.max(0, Math.min(20, containmentScore));
-
-    // 2. Evidence Preservation (max 20)
-    let preservationScore = 0;
-    const criticalSelected = phase2.selectedSourceIds.filter((id) => {
-      const src = PRESERVATION_SOURCES.find((s) => s.id === id);
-      return src?.category === "critical";
-    });
-    preservationScore += criticalSelected.length * 3; // up to 12
-
-    const highSelected = phase2.selectedSourceIds.filter((id) => {
-      const src = PRESERVATION_SOURCES.find((s) => s.id === id);
-      return src?.category === "high";
-    });
-    preservationScore += Math.min(6, highSelected.length * 2); // up to 6
-
-    // Penalties for high-priority distractors
-    const distractorP1 = phase2.selectedSourceIds.filter((id) => {
-      const src = PRESERVATION_SOURCES.find((s) => s.id === id);
-      return src?.category === "distractor" && phase2.sourcePriorities[id] === 1;
-    });
-    preservationScore -= distractorP1.length * 3;
-
-    if (phase2.chainOfCustodyNotes.trim().length >= 20) preservationScore += 2;
-    preservationScore = Math.max(0, Math.min(20, preservationScore));
-
-    // 3. Scope & Recovery (max 20)
-    let scopeScore = 0;
-    const answeredCount = Object.values(phase3.scopeResponses).filter(
-      (v) => v.trim().length >= 15,
-    ).length;
-    scopeScore += Math.min(10, answeredCount * 2); // up to 10
-
-    const recommendedSteps = phase3.selectedRecoveryStepIds.filter((id) => {
-      const step = SAFE_RECOVERY_STEPS.find((s) => s.id === id);
-      return step?.recommended;
-    });
-    scopeScore += Math.min(8, recommendedSteps.length * 2); // up to 8
-
-    if (phase3.selectedRecoveryStepIds.includes("REC-06")) scopeScore -= 6; // resuming unverified cron
-    if (phase3.recoveryPlanRationale.trim().length >= 20) scopeScore += 2;
-    scopeScore = Math.max(0, Math.min(20, scopeScore));
-
-    // 4. Response Decision & Fact Classification (max 20)
-    let decisionScore = 0;
-    if (phase4.decisionId === "DEC-OPT-01") {
-      decisionScore += 10; // optimal proportionate stance
-    }
-
-    let correctClassifications = 0;
-    FACT_HYPOTHESIS_ITEMS.forEach((item) => {
-      if (phase4.classifications[item.id] === item.correctCategory) {
-        correctClassifications += 1;
-      }
-    });
-    decisionScore += Math.min(10, correctClassifications); // 1 pt per correct item
-    decisionScore = Math.max(0, Math.min(20, decisionScore));
-
-    // 5. Final Report & Forensic Integrity (max 20)
-    let reportScore = 0;
-    if (phase1.justification.trim().length >= 25) reportScore += 4;
-    if (phase2.chainOfCustodyNotes.trim().length >= 25) reportScore += 4;
-    if (phase3.recoveryPlanRationale.trim().length >= 25) reportScore += 4;
-    if (phase4.decisionRationale.trim().length >= 25) reportScore += 4;
-    if (phase4.nextInvestigationSteps.trim().length >= 20) reportScore += 4;
-    reportScore = Math.max(0, Math.min(20, reportScore));
-
-    const total =
-      containmentScore +
-      preservationScore +
-      scopeScore +
-      decisionScore +
-      reportScore;
-
-    return {
-      containmentScore,
-      preservationScore,
-      scopeScore,
-      decisionScore,
-      reportScore,
-      total,
-      hasDestructiveActions:
-        phase1.selectedActionIds.includes("ACT-07") ||
-        phase1.selectedActionIds.includes("ACT-08"),
-      hasDisproportionateShutdown: phase1.selectedActionIds.includes("ACT-06"),
-      hasUnsafeRecovery: phase3.selectedRecoveryStepIds.includes("REC-06"),
-      declaredPrematureBreach: phase4.decisionId === "DEC-OPT-02",
-    };
+    return calculateIncidentResponseScore({ phase1, phase2, phase3, phase4 });
   }, [phase1, phase2, phase3, phase4]);
 
   const resetAll = () => {
@@ -378,7 +268,10 @@ export function IncidentResponse({
           {phases.map((p) => {
             const isCurrent = currentPhase === p.num;
             const isCompleted = currentPhase > p.num;
-            const isClickable = p.num <= highestVisitedPhase || p.num <= currentPhase + 1;
+            const isClickable =
+              done ||
+              p.num <= highestVisitedPhase ||
+              (p.num === currentPhase + 1 && isPhaseValid(currentPhase));
 
             return (
               <button
@@ -505,9 +398,9 @@ export function IncidentResponse({
                 <div className="flex items-start gap-2 text-amber-400">
                   <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
                   <div className="font-mono text-xs">
-                    <span className="font-bold">DISPROPORTIONATE IMPACT WARNING:</span> Shutting down
-                    all corporate exports across every division creates massive commercial injury
-                    unsupported by the evidence, which isolates the issue specifically to
+                    <span className="font-bold">DISPROPORTIONATE IMPACT WARNING:</span> Shutting
+                    down all corporate exports across every division creates massive commercial
+                    injury unsupported by the evidence, which isolates the issue specifically to
                     ExportBridge configuration v17.
                   </div>
                 </div>
@@ -644,9 +537,7 @@ export function IncidentResponse({
               </label>
               <textarea
                 value={phase1.justification}
-                onChange={(e) =>
-                  setPhase1((prev) => ({ ...prev, justification: e.target.value }))
-                }
+                onChange={(e) => setPhase1((prev) => ({ ...prev, justification: e.target.value }))}
                 placeholder="Explain why your selected containment actions protect the environment, prevent evidence spoliation, and maintain operational stability..."
                 rows={3}
                 className="mt-2 w-full border border-border bg-black/50 p-3 font-mono text-xs text-foreground placeholder:text-zinc-600 focus:border-emerald-500 focus:outline-none"
@@ -660,8 +551,8 @@ export function IncidentResponse({
             {/* Navigation buttons */}
             <div className="mt-6 flex items-center justify-between border-t border-border pt-4">
               <div className="font-mono text-xs text-muted-foreground">
-                Selected:{" "}
-                <span className="text-foreground">{phase1.selectedActionIds.length}</span> actions
+                Selected: <span className="text-foreground">{phase1.selectedActionIds.length}</span>{" "}
+                actions
               </div>
               <button
                 onClick={() => navigateToPhase(2)}
@@ -844,9 +735,7 @@ export function IncidentResponse({
                   <input
                     type="text"
                     value={phase2.custodian}
-                    onChange={(e) =>
-                      setPhase2((prev) => ({ ...prev, custodian: e.target.value }))
-                    }
+                    onChange={(e) => setPhase2((prev) => ({ ...prev, custodian: e.target.value }))}
                     className="mt-1.5 w-full border border-border bg-black/50 p-2 font-mono text-xs text-foreground focus:border-emerald-500 focus:outline-none"
                     placeholder="e.g. Lead IR Investigator"
                   />
@@ -1159,9 +1048,7 @@ export function IncidentResponse({
                   return (
                     <div
                       key={opt.id}
-                      onClick={() =>
-                        setPhase4((prev) => ({ ...prev, decisionId: opt.id }))
-                      }
+                      onClick={() => setPhase4((prev) => ({ ...prev, decisionId: opt.id }))}
                       className={`cursor-pointer border p-4 transition-all ${
                         isSelected
                           ? opt.isOptimal
@@ -1174,9 +1061,7 @@ export function IncidentResponse({
                         <div className="flex items-center gap-2">
                           <div
                             className={`flex h-4 w-4 rounded-full border items-center justify-center ${
-                              isSelected
-                                ? "border-emerald-400 bg-emerald-500"
-                                : "border-zinc-700"
+                              isSelected ? "border-emerald-400 bg-emerald-500" : "border-zinc-700"
                             }`}
                           >
                             {isSelected && <div className="h-1.5 w-1.5 rounded-full bg-black" />}
@@ -1437,8 +1322,8 @@ export function IncidentResponse({
               )}
               {scoreBreakdown.declaredPrematureBreach && (
                 <div className="text-amber-400">
-                  • Deducted points: Declaring confirmed external breach contradicts evidence showing
-                  external transmission is unproven.
+                  • Deducted points: Declaring confirmed external breach contradicts evidence
+                  showing external transmission is unproven.
                 </div>
               )}
               {!scoreBreakdown.hasDestructiveActions &&
@@ -1500,12 +1385,13 @@ export function IncidentResponse({
                 ExportBridge batch pipeline (Job EB-2041) executing as service identity{" "}
                 <code>svc-exportbridge</code> requested and successfully read the restricted Project
                 Glasshouse roadmap (<code>/projects/glasshouse/roadmap</code>) and staged archive
-                package <code>PKG-8842</code> in internal object storage. Forensic analysis confirmed
-                that configuration v17 (commit <code>a94f2b1</code> authored by Mira Vance) introduced
-                an overbroad <code>/projects/*</code> wildcard filter. The staged archive matches the
-                acquired artifact hash; minor variations in secondary working copies were verified as
-                benign tar timestamp metadata. The incident response team executed targeted
-                containment, preserved all relevant forensic logs, and scoped remediation.
+                package <code>PKG-8842</code> in internal object storage. Forensic analysis
+                confirmed that configuration v17 (commit <code>a94f2b1</code> authored by Mira
+                Vance) introduced an overbroad <code>/projects/*</code> wildcard filter. The staged
+                archive matches the acquired artifact hash; minor variations in secondary working
+                copies were verified as benign tar timestamp metadata. The incident response team
+                executed targeted containment, preserved all relevant forensic logs, and scoped
+                remediation.
               </p>
             </div>
 
@@ -1518,19 +1404,22 @@ export function IncidentResponse({
                 <div className="flex gap-4">
                   <span className="text-emerald-400 shrink-0">08:45:10</span>
                   <span className="text-muted-foreground">
-                    Project Lead Elena Rostova accesses roadmap via interactive web session (DOC-WEB-205).
+                    Project Lead Elena Rostova accesses roadmap via interactive web session
+                    (DOC-WEB-205).
                   </span>
                 </div>
                 <div className="flex gap-4">
                   <span className="text-emerald-400 shrink-0">09:32:08</span>
                   <span className="text-muted-foreground">
-                    ExportBridge scheduler initiates scheduled weekly job EB-2041 on worker export-worker-03 (SCH-01).
+                    ExportBridge scheduler initiates scheduled weekly job EB-2041 on worker
+                    export-worker-03 (SCH-01).
                   </span>
                 </div>
                 <div className="flex gap-4">
                   <span className="text-emerald-400 shrink-0">09:36:18</span>
                   <span className="text-muted-foreground">
-                    STS issues service token for svc-exportbridge; application gateway receives request (AUTH-05, STS-ISS-208).
+                    STS issues service token for svc-exportbridge; application gateway receives
+                    request (AUTH-05, STS-ISS-208).
                   </span>
                 </div>
                 <div className="flex gap-4">
@@ -1548,13 +1437,15 @@ export function IncidentResponse({
                 <div className="flex gap-4">
                   <span className="text-emerald-400 shrink-0">09:39:53</span>
                   <span className="text-muted-foreground">
-                    No egress transfer matching PKG-8842 observed in perimeter firewall flows (NET-10).
+                    No egress transfer matching PKG-8842 observed in perimeter firewall flows
+                    (NET-10).
                   </span>
                 </div>
                 <div className="flex gap-4">
                   <span className="text-emerald-400 shrink-0">09:40:00</span>
                   <span className="text-muted-foreground">
-                    Security operations alert ALT-8821 triggered on restricted document access (AUTH-11).
+                    Security operations alert ALT-8821 triggered on restricted document access
+                    (AUTH-11).
                   </span>
                 </div>
                 <div className="flex gap-4">
@@ -1588,8 +1479,8 @@ export function IncidentResponse({
                 </li>
                 <li>
                   <strong className="text-foreground">Cryptographic Hash Verification:</strong> The
-                  SHA-256 hash of the staged package strictly matches the acquired evidence
-                  artifact <code>EVD-RAW-001</code>.
+                  SHA-256 hash of the staged package strictly matches the acquired evidence artifact{" "}
+                  <code>EVD-RAW-001</code>.
                 </li>
                 <li>
                   <strong className="text-foreground">Working Copy Hash Explained:</strong> Binary
@@ -1700,7 +1591,8 @@ export function IncidentResponse({
                   configuration templates.
                 </li>
                 <li>
-                  Final verification of Mira Vance's commit history across other repository branches.
+                  Final verification of Mira Vance's commit history across other repository
+                  branches.
                 </li>
               </ul>
             </div>

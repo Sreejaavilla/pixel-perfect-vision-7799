@@ -8,6 +8,7 @@ import { LeaderboardView } from "../components/LeaderboardView";
 import { AuthModal } from "../components/AuthModal";
 import { getSupabaseClient } from "../lib/supabase-client";
 import { submitStageServerFn } from "../api/submissions";
+import { getCompletedStagePrefix } from "../lib/stage-progress";
 import {
   LayoutDashboard,
   Network,
@@ -337,7 +338,7 @@ function Dashboard() {
             .maybeSingle();
 
           if (progressData?.completed_stages && Array.isArray(progressData.completed_stages)) {
-            setCompleted(Math.max(0, ...progressData.completed_stages));
+            setCompleted(getCompletedStagePrefix(progressData.completed_stages).length);
           }
         }
       } catch (err) {
@@ -550,7 +551,7 @@ function Dashboard() {
                     progressData?.completed_stages &&
                     Array.isArray(progressData.completed_stages)
                   ) {
-                    setCompleted(Math.max(0, ...progressData.completed_stages));
+                    setCompleted(getCompletedStagePrefix(progressData.completed_stages).length);
                   } else {
                     setCompleted(0);
                   }

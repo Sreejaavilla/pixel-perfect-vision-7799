@@ -89,6 +89,20 @@ describe("Database Schema & Security RLS Integrity", () => {
     expect(selectClause).not.toContain("email");
   });
 
+  it("counts only consecutive stages as completed in the leaderboard", () => {
+    expect(schemaSql).toContain(
+      "COALESCE(public.completed_stage_prefix(up.completed_stages), 0) AS stages_completed",
+    );
+    expect(schemaSql).toContain(
+      "CREATE OR REPLACE FUNCTION public.completed_stage_prefix(stage_ids INTEGER[])",
+    );
+  });
+
+  it("adds progress columns when upgrading an existing database", () => {
+    expect(schemaSql).toContain("ADD COLUMN IF NOT EXISTS stage_scores JSONB");
+    expect(schemaSql).toContain("ADD COLUMN IF NOT EXISTS case_concluded BOOLEAN");
+  });
+
   it("supports modern Supabase sb_secret_ key and database execution context in role-protection trigger", () => {
     expect(schemaSql).toContain("FUNCTION public.prevent_role_tampering()");
     expect(schemaSql).toContain("is_privileged :=");

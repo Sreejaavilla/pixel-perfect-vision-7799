@@ -13,6 +13,7 @@ import {
 } from "./stage-validators";
 import { getSupabaseAdminClient, isServerSupabaseReady } from "./supabase-server";
 import type { IncidentResponseState } from "../lib/stage5-response";
+import { getCompletedStagePrefix, normalizeStageScores, type StageId } from "../lib/stage-progress";
 
 export type SubmitStageInput = {
   stageId: number;
@@ -81,12 +82,12 @@ export async function executeStageSubmission(data: SubmitStageInput): Promise<Su
         .maybeSingle();
       if (progressError) throw progressError;
 
-      const existingCompleted = ((progress?.completed_stages as number[]) || []).filter(
-        (stage): stage is 1 | 2 | 3 | 4 | 5 => Number.isInteger(stage) && stage >= 1 && stage <= 5,
+      const existingCompleted = getCompletedStagePrefix(
+        (progress?.completed_stages as number[]) || [],
       );
-      const highestCompleted = Math.max(0, ...existingCompleted);
-      if (stageId > highestCompleted + 1) {
-        throw new Error(`Complete stage ${highestCompleted + 1} before submitting this stage.`);
+      const nextStage = existingCompleted.length + 1;
+      if (stageId > nextStage) {
+        throw new Error(`Complete stage ${nextStage} before submitting this stage.`);
       }
 
       const { error: insertError } = await admin.from("stage_submissions").insert({
@@ -99,15 +100,17 @@ export async function executeStageSubmission(data: SubmitStageInput): Promise<Su
       });
       if (insertError) throw insertError;
 
-      const existingScores = (progress?.stage_scores as Record<string, number>) || {};
+      const existingScores = normalizeStageScores(
+        progress?.stage_scores as Record<string, unknown> | null,
+        existingCompleted,
+        Number(progress?.total_score) || 0,
+      );
       const prevScore = existingScores[String(stageId)] || 0;
       const updatedStageScore = Math.max(prevScore, result.score);
       const updatedScores = { ...existingScores, [String(stageId)]: updatedStageScore };
 
       const updatedCompleted = result.passed
-        ? (Array.from(new Set([...existingCompleted, stageId as 1 | 2 | 3 | 4 | 5])).sort(
-            (a, b) => a - b,
-          ) as (1 | 2 | 3 | 4 | 5)[])
+        ? getCompletedStagePrefix([...existingCompleted, stageId as StageId])
         : existingCompleted;
 
       const updatedTotal = Object.values(updatedScores).reduce((acc, s) => acc + s, 0);
@@ -118,7 +121,7 @@ export async function executeStageSubmission(data: SubmitStageInput): Promise<Su
         .upsert({
           user_id: user.id,
           completed_stages: updatedCompleted,
-          current_stage: Math.min(5, Math.max(...updatedCompleted, 0) + 1),
+          current_stage: Math.min(5, updatedCompleted.length + 1),
           stage_scores: updatedScores,
           total_score: updatedTotal,
           case_concluded: isCaseConcluded,

@@ -10,7 +10,6 @@ import {
   FileSearch,
   Users,
   ShieldAlert,
-  FileText,
   Lock,
   ChevronRight,
   Target,
@@ -50,7 +49,7 @@ export const Route = createFileRoute("/")({
 });
 
 type Icon = ComponentType<{ className?: string }>;
-type View = "overview" | "report" | string;
+type View = "overview" | string;
 
 type Stage = {
   id: number;
@@ -295,12 +294,11 @@ function Dashboard() {
   const unlocked = (id: number) => id <= completed + 1;
   const progress = Math.round((completed / STAGES.length) * 100);
   const current = STAGES[Math.min(completed, STAGES.length - 1)]!;
-  const reportUnlocked = completed === STAGES.length;
+  const caseConcluded = completed === STAGES.length;
 
   const open = (nextView: View) => {
     const stage = STAGES.find((item) => item.key === nextView);
     if (stage && !unlocked(stage.id)) return;
-    if (nextView === "report" && !reportUnlocked) return;
     setView(nextView);
   };
 
@@ -317,12 +315,6 @@ function Dashboard() {
       icon: stage.icon,
       locked: !unlocked(stage.id),
     })),
-    {
-      key: "report",
-      label: "Final Report",
-      icon: FileText,
-      locked: !reportUnlocked,
-    },
   ];
 
   const activeStage = STAGES.find((stage) => stage.key === view);
@@ -367,7 +359,7 @@ function Dashboard() {
 
           <div className="flex items-center gap-2 rounded-sm border border-primary/40 px-2 py-1 font-mono text-[11px] tracking-widest text-primary">
             <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-primary glow" />
-            INVESTIGATION ACTIVE
+            {caseConcluded ? "CASE CONCLUDED" : "INVESTIGATION ACTIVE"}
           </div>
 
           <div className="ml-auto flex items-center gap-3">
@@ -388,16 +380,6 @@ function Dashboard() {
                 setView("overview");
               }}
             />
-          ) : view === "report" ? (
-            <div className="mx-auto max-w-6xl space-y-4">
-              <button
-                onClick={() => setView("overview")}
-                className="flex items-center gap-1 font-mono text-xs text-muted-foreground hover:text-primary"
-              >
-                <ArrowLeft className="h-3 w-3" /> BACK TO OVERVIEW
-              </button>
-              <IncidentResponse done={true} onComplete={() => {}} initialPhase={5} />
-            </div>
           ) : (
             <Overview completed={completed} unlocked={unlocked} open={open} />
           )}
@@ -406,7 +388,7 @@ function Dashboard() {
         <footer className="flex min-h-9 flex-wrap items-center gap-4 border-t border-border bg-sidebar px-6 py-2 font-mono text-[11px] tracking-wider text-muted-foreground">
           <span>
             STATUS:{" "}
-            <span className="text-primary">{reportUnlocked ? "READY FOR REPORT" : "OPEN"}</span>
+            <span className="text-primary">{caseConcluded ? "CASE CONCLUDED" : "OPEN"}</span>
           </span>
           <span>
             STAGE:{" "}

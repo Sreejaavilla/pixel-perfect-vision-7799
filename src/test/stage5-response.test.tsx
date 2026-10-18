@@ -358,36 +358,31 @@ describe("Stage 5 — IncidentResponse UI & Interaction", () => {
       target: { value: "Request partner SFTP transmission logs." },
     });
 
-    // Navigate to Phase 5
-    fireEvent.click(screen.getByRole("button", { name: /GENERATE FINAL INCIDENT REPORT/i }));
+    // Submit response from Phase 4 directly to completion
+    fireEvent.click(
+      screen.getByRole("button", { name: /COMPLETE INVESTIGATION & SUBMIT RESPONSE/i }),
+    );
 
-    // --- Phase 5 ---
+    expect(onComplete).toHaveBeenCalledTimes(1);
+
+    // --- Completion Screen ---
     expect(screen.getByText(/INCIDENT RESPONSE SCORE BREAKDOWN/i)).toBeInTheDocument();
-    expect(screen.getByText(/FORMAL INCIDENT RESPONSE REPORT — CASE 07/i)).toBeInTheDocument();
-    expect(screen.getByText(/DOCUMENT REF: IR-2026-BF007-FINAL/i)).toBeInTheDocument();
+    expect(screen.getByText(/THE GLASSHOUSE INCIDENT — RESPONSE COMPLETE/i)).toBeInTheDocument();
+    expect(screen.getByText(/REF: IR-2026-BF007-FINAL/i)).toBeInTheDocument();
+    expect(screen.getByText(/CASE 07 INVESTIGATION & RESPONSE COMPLETE/i)).toBeInTheDocument();
 
     // Verify navigating backwards preserves inputs
     fireEvent.click(screen.getByRole("button", { name: /BACK TO DECISION/i }));
     expect(screen.getByText("PHASE 04 — RESPONSE DECISION")).toBeInTheDocument();
     expect(screen.getByDisplayValue("Request partner SFTP transmission logs.")).toBeInTheDocument();
-
-    // Return to Phase 5 and submit
-    fireEvent.click(screen.getByRole("button", { name: /GENERATE FINAL INCIDENT REPORT/i }));
-    const submitButton = screen.getByRole("button", {
-      name: /SUBMIT FINAL INCIDENT REPORT & CONCLUDE CASE 07/i,
-    });
-    fireEvent.click(submitButton);
-
-    expect(onComplete).toHaveBeenCalledTimes(1);
-    expect(screen.getByText(/CASE 07 INVESTIGATION & RESPONSE COMPLETE/i)).toBeInTheDocument();
   });
 
-  it("supports initialPhase prop for direct review of final report", () => {
+  it("supports initialPhase prop for direct review of completion results", () => {
     const onComplete = vi.fn();
     render(<IncidentResponse done={true} onComplete={onComplete} initialPhase={5} />);
 
-    expect(screen.getByText(/FORMAL INCIDENT RESPONSE REPORT — CASE 07/i)).toBeInTheDocument();
-    expect(screen.getByText(/CASE CONCLUDED/i)).toBeInTheDocument();
+    expect(screen.getByText(/THE GLASSHOUSE INCIDENT — RESPONSE COMPLETE/i)).toBeInTheDocument();
+    expect(screen.getAllByText(/CASE CONCLUDED/i).length).toBeGreaterThanOrEqual(1);
     expect(screen.getByText(/CASE 07 INVESTIGATION & RESPONSE COMPLETE/i)).toBeInTheDocument();
   });
 

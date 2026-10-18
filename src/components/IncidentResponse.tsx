@@ -19,7 +19,7 @@ import {
   calculateIncidentResponseScore,
 } from "../lib/stage5-response";
 
-type Phase = 1 | 2 | 3 | 4 | 5;
+type Phase = 1 | 2 | 3 | 4 | "completion";
 
 interface Phase1State {
   selectedActionIds: string[];
@@ -56,12 +56,15 @@ export function IncidentResponse({
 }: {
   done: boolean;
   onComplete: () => void;
-  initialPhase?: Phase;
+  initialPhase?: Phase | 5;
 }) {
-  const [currentPhase, setCurrentPhase] = useState<Phase>(initialPhase);
-  const [highestVisitedPhase, setHighestVisitedPhase] = useState<Phase>(done ? 5 : initialPhase);
+  const normalizedInitial: Phase = initialPhase === 5 ? "completion" : initialPhase;
+  const [currentPhase, setCurrentPhase] = useState<Phase>(normalizedInitial);
+  const [highestVisitedPhase, setHighestVisitedPhase] = useState<number>(
+    done ? 5 : normalizedInitial === "completion" ? 5 : normalizedInitial,
+  );
   const [showResetConfirm, setShowResetConfirm] = useState(false);
-  const [isSubmitted, setIsSubmitted] = useState(false);
+  const [isSubmitted, setIsSubmitted] = useState(done);
 
   // Phase 1 State
   const [phase1, setPhase1] = useState<Phase1State>({
@@ -153,13 +156,19 @@ export function IncidentResponse({
     return true;
   };
 
+  const getPhaseNumber = (phase: Phase): number => {
+    return phase === "completion" ? 5 : phase;
+  };
+
   // Navigate to phase with unlocked rules
   const navigateToPhase = (target: Phase) => {
-    const canAdvance = target === currentPhase + 1 && isPhaseValid(currentPhase);
-    if (done || target <= highestVisitedPhase || canAdvance) {
+    const targetNum = getPhaseNumber(target);
+    const currentNum = getPhaseNumber(currentPhase);
+    const canAdvance = targetNum === currentNum + 1 && isPhaseValid(currentNum);
+    if (done || isSubmitted || targetNum <= highestVisitedPhase || canAdvance) {
       setCurrentPhase(target);
-      if (target > highestVisitedPhase) {
-        setHighestVisitedPhase(target);
+      if (targetNum > highestVisitedPhase) {
+        setHighestVisitedPhase(targetNum);
       }
     }
   };
@@ -201,11 +210,13 @@ export function IncidentResponse({
   };
 
   const phases = [
-    { num: 1, label: "Immediate Containment", short: "01 Containment" },
-    { num: 2, label: "Evidence Preservation", short: "02 Preservation" },
-    { num: 3, label: "Scope & Recovery", short: "03 Scope & Recovery" },
-    { num: 4, label: "Response Decision", short: "04 Response Decision" },
-    { num: 5, label: "Final Incident Report", short: "05 Final Report" },
+    { num: 1 as const, label: "Immediate Containment", short: "01 Containment" },
+    { num: 2 as const, label: "Evidence Preservation", short: "02 Preservation" },
+    { num: 3 as const, label: "Scope & Recovery", short: "03 Scope & Recovery" },
+    { num: 4 as const, label: "Response Decision", short: "04 Response Decision" },
+    ...(isSubmitted || done || currentPhase === "completion"
+      ? [{ num: 5 as const, label: "Score & Completion", short: "05 Results" }]
+      : []),
   ];
 
   return (
@@ -264,19 +275,24 @@ export function IncidentResponse({
         </div>
 
         {/* Phase Stepper Bar */}
-        <div className="mt-5 grid grid-cols-2 gap-2 sm:grid-cols-5">
+        <div className="mt-5 grid grid-cols-2 gap-2 sm:grid-cols-4 lg:grid-cols-5">
           {phases.map((p) => {
-            const isCurrent = currentPhase === p.num;
-            const isCompleted = currentPhase > p.num;
+            const isCurrent =
+              currentPhase === p.num || (p.num === 5 && currentPhase === "completion");
+            const isCompleted = getPhaseNumber(currentPhase) > p.num;
             const isClickable =
               done ||
+              isSubmitted ||
               p.num <= highestVisitedPhase ||
-              (p.num === currentPhase + 1 && isPhaseValid(currentPhase));
+              (p.num === getPhaseNumber(currentPhase) + 1 &&
+                isPhaseValid(getPhaseNumber(currentPhase)));
 
             return (
               <button
                 key={p.num}
-                onClick={() => isClickable && navigateToPhase(p.num as Phase)}
+                onClick={() =>
+                  isClickable && navigateToPhase(p.num === 5 ? "completion" : (p.num as Phase))
+                }
                 disabled={!isClickable}
                 className={`flex items-center gap-2 border p-2.5 text-left transition-all ${
                   isCurrent
@@ -1209,12 +1225,17 @@ export function IncidentResponse({
               </button>
 
               <button
-                onClick={() => navigateToPhase(5)}
+                onClick={() => {
+                  setIsSubmitted(true);
+                  setHighestVisitedPhase(5);
+                  setCurrentPhase("completion");
+                  onComplete();
+                }}
                 disabled={!isPhase4Valid}
-                className="flex items-center gap-2 bg-emerald-600 px-5 py-2 font-mono text-xs font-bold uppercase tracking-wider text-black transition-colors hover:bg-emerald-500 disabled:opacity-40"
+                className="flex items-center gap-2 bg-emerald-500 px-6 py-2.5 font-mono text-xs font-bold uppercase tracking-wider text-black transition-colors hover:bg-emerald-400 disabled:opacity-40"
               >
-                GENERATE FINAL INCIDENT REPORT
-                <ChevronRight className="h-4 w-4" />
+                <Send className="h-4 w-4" />
+                COMPLETE INVESTIGATION & SUBMIT RESPONSE
               </button>
             </div>
           </div>
@@ -1222,393 +1243,276 @@ export function IncidentResponse({
       )}
 
       {/* ========================================================= */}
-      {/* PHASE 5: FINAL INCIDENT REPORT */}
+      {/* COMPLETION SCREEN: SCORE BREAKDOWN & CASE RESOLUTION */}
       {/* ========================================================= */}
-      {currentPhase === 5 && (
+      {(currentPhase === "completion" || currentPhase === 5) && (
         <div className="space-y-6">
-          {/* Score Assessment Card */}
-          <div className="border border-border bg-card p-6">
-            <div className="flex flex-wrap items-center justify-between gap-4">
+          {/* Completion Victory / Conclusion Banner */}
+          <div className="relative overflow-hidden border border-emerald-500/40 bg-card p-6 md:p-8">
+            <div className="pointer-events-none absolute right-0 top-0 p-4 opacity-10">
+              <CheckCircle2 className="h-40 w-40 text-emerald-400" />
+            </div>
+
+            <div className="flex flex-wrap items-center justify-between gap-4 border-b border-border pb-6">
               <div>
-                <span className="font-mono text-xs uppercase tracking-widest text-emerald-400">
-                  INCIDENT RESPONSE SCORE BREAKDOWN
-                </span>
-                <h2 className="mt-1 font-mono text-2xl font-bold tracking-tight text-foreground">
-                  OVERALL ASSESSMENT: {scoreBreakdown.total} / 100 PTS
-                </h2>
+                <div className="flex items-center gap-2">
+                  <span className="h-2 w-2 animate-pulse rounded-full bg-emerald-400" />
+                  <span className="font-mono text-xs uppercase tracking-widest text-emerald-400">
+                    INVESTIGATION CONCLUDED — CASE 07
+                  </span>
+                </div>
+                <h1 className="mt-2 font-mono text-2xl font-bold tracking-tight text-foreground md:text-3xl">
+                  THE GLASSHOUSE INCIDENT — RESPONSE COMPLETE
+                </h1>
+                <p className="mt-1 font-mono text-xs text-muted-foreground">
+                  REF: IR-2026-BF007-FINAL // CLASSIFICATION: CONFIDENTIAL // NOVACORP IR
+                </p>
               </div>
 
               <div className="flex items-center gap-3">
-                <span
-                  className={`border px-3 py-1 font-mono text-xs font-bold uppercase tracking-wider ${
-                    scoreBreakdown.total >= 85
-                      ? "border-emerald-500 bg-emerald-500/20 text-emerald-400"
-                      : scoreBreakdown.total >= 70
-                        ? "border-cyan-500 bg-cyan-500/20 text-cyan-400"
-                        : "border-amber-500 bg-amber-500/20 text-amber-400"
-                  }`}
-                >
-                  {scoreBreakdown.total >= 85
-                    ? "EXEMPLARY FORENSIC RIGOR"
-                    : scoreBreakdown.total >= 70
-                      ? "DEFENSIBLE RESPONSE"
-                      : "DEFICIENT IN PARTS"}
+                <span className="flex items-center gap-2 border border-emerald-500/60 bg-emerald-500/10 px-3.5 py-1.5 font-mono text-xs font-bold uppercase tracking-wider text-emerald-400">
+                  <CheckCircle2 className="h-4 w-4" />
+                  CASE CONCLUDED
                 </span>
               </div>
             </div>
 
-            {/* Score Category Grid */}
-            <div className="mt-5 grid grid-cols-2 gap-3 sm:grid-cols-5">
-              <div className="border border-border bg-black/40 p-3">
-                <div className="font-mono text-[10px] uppercase text-muted-foreground">
-                  Containment
+            {/* Score Assessment Card */}
+            <div className="mt-6 border border-border bg-black/40 p-5 md:p-6">
+              <div className="flex flex-wrap items-center justify-between gap-4">
+                <div>
+                  <span className="font-mono text-[11px] uppercase tracking-widest text-emerald-400">
+                    INCIDENT RESPONSE SCORE BREAKDOWN
+                  </span>
+                  <div className="mt-1 flex items-baseline gap-3">
+                    <span className="font-mono text-3xl font-bold tracking-tight text-foreground">
+                      {scoreBreakdown.total}
+                    </span>
+                    <span className="font-mono text-sm text-muted-foreground">/ 100 PTS</span>
+                  </div>
                 </div>
-                <div className="mt-1 font-mono text-lg font-bold text-emerald-400">
-                  {scoreBreakdown.containmentScore} / 20
-                </div>
-              </div>
-              <div className="border border-border bg-black/40 p-3">
-                <div className="font-mono text-[10px] uppercase text-muted-foreground">
-                  Preservation
-                </div>
-                <div className="mt-1 font-mono text-lg font-bold text-emerald-400">
-                  {scoreBreakdown.preservationScore} / 20
-                </div>
-              </div>
-              <div className="border border-border bg-black/40 p-3">
-                <div className="font-mono text-[10px] uppercase text-muted-foreground">
-                  Scope & Recovery
-                </div>
-                <div className="mt-1 font-mono text-lg font-bold text-emerald-400">
-                  {scoreBreakdown.scopeScore} / 20
-                </div>
-              </div>
-              <div className="border border-border bg-black/40 p-3">
-                <div className="font-mono text-[10px] uppercase text-muted-foreground">
-                  Decision Rigor
-                </div>
-                <div className="mt-1 font-mono text-lg font-bold text-emerald-400">
-                  {scoreBreakdown.decisionScore} / 20
-                </div>
-              </div>
-              <div className="border border-border bg-black/40 p-3">
-                <div className="font-mono text-[10px] uppercase text-muted-foreground">
-                  Report Quality
-                </div>
-                <div className="mt-1 font-mono text-lg font-bold text-emerald-400">
-                  {scoreBreakdown.reportScore} / 20
-                </div>
-              </div>
-            </div>
 
-            {/* Specific feedback badges */}
-            <div className="mt-4 space-y-1.5 font-mono text-xs">
-              {scoreBreakdown.hasDestructiveActions && (
-                <div className="text-red-400">
-                  • Negative penalty applied: Destructive containment actions selected that cause
-                  evidence spoliation.
+                <div className="flex items-center gap-3">
+                  <span
+                    className={`border px-3 py-1 font-mono text-xs font-bold uppercase tracking-wider ${
+                      scoreBreakdown.total >= 85
+                        ? "border-emerald-500 bg-emerald-500/20 text-emerald-400"
+                        : scoreBreakdown.total >= 70
+                          ? "border-cyan-500 bg-cyan-500/20 text-cyan-400"
+                          : "border-amber-500 bg-amber-500/20 text-amber-400"
+                    }`}
+                  >
+                    {scoreBreakdown.total >= 85
+                      ? "EXEMPLARY FORENSIC RIGOR"
+                      : scoreBreakdown.total >= 70
+                        ? "DEFENSIBLE RESPONSE"
+                        : "DEFICIENT IN PARTS"}
+                  </span>
                 </div>
-              )}
-              {scoreBreakdown.hasDisproportionateShutdown && (
-                <div className="text-amber-400">
-                  • Penalty applied: Company-wide export shutdown was disproportionate to the
-                  isolated configuration issue.
+              </div>
+
+              {/* Score Category Grid */}
+              <div className="mt-5 grid grid-cols-2 gap-3 sm:grid-cols-5">
+                <div className="border border-border bg-card/60 p-3">
+                  <div className="font-mono text-[10px] uppercase text-muted-foreground">
+                    Containment
+                  </div>
+                  <div className="mt-1 font-mono text-lg font-bold text-emerald-400">
+                    {scoreBreakdown.containmentScore} / 20
+                  </div>
                 </div>
-              )}
-              {scoreBreakdown.hasUnsafeRecovery && (
-                <div className="text-red-400">
-                  • Penalty applied: Re-enabling cron jobs unverified risks repeating exposure.
+                <div className="border border-border bg-card/60 p-3">
+                  <div className="font-mono text-[10px] uppercase text-muted-foreground">
+                    Preservation
+                  </div>
+                  <div className="mt-1 font-mono text-lg font-bold text-emerald-400">
+                    {scoreBreakdown.preservationScore} / 20
+                  </div>
                 </div>
-              )}
-              {scoreBreakdown.declaredPrematureBreach && (
-                <div className="text-amber-400">
-                  • Deducted points: Declaring confirmed external breach contradicts evidence
-                  showing external transmission is unproven.
+                <div className="border border-border bg-card/60 p-3">
+                  <div className="font-mono text-[10px] uppercase text-muted-foreground">
+                    Scope & Recovery
+                  </div>
+                  <div className="mt-1 font-mono text-lg font-bold text-emerald-400">
+                    {scoreBreakdown.scopeScore} / 20
+                  </div>
                 </div>
-              )}
-              {!scoreBreakdown.hasDestructiveActions &&
-                !scoreBreakdown.hasDisproportionateShutdown &&
-                !scoreBreakdown.declaredPrematureBreach && (
-                  <div className="text-emerald-400">
-                    ✓ Strong forensic discipline: Avoided destructive actions, respected evidentiary
-                    boundaries, and properly prioritized non-destructive containment.
+                <div className="border border-border bg-card/60 p-3">
+                  <div className="font-mono text-[10px] uppercase text-muted-foreground">
+                    Decision Rigor
+                  </div>
+                  <div className="mt-1 font-mono text-lg font-bold text-emerald-400">
+                    {scoreBreakdown.decisionScore} / 20
+                  </div>
+                </div>
+                <div className="border border-border bg-card/60 p-3">
+                  <div className="font-mono text-[10px] uppercase text-muted-foreground">
+                    Report Quality
+                  </div>
+                  <div className="mt-1 font-mono text-lg font-bold text-emerald-400">
+                    {scoreBreakdown.reportScore} / 20
+                  </div>
+                </div>
+              </div>
+
+              {/* Specific feedback callouts */}
+              <div className="mt-4 space-y-1.5 border-t border-border/80 pt-4 font-mono text-xs">
+                {scoreBreakdown.hasDestructiveActions && (
+                  <div className="text-red-400">
+                    • Penalty applied: Destructive containment actions selected that cause evidence
+                    spoliation.
                   </div>
                 )}
+                {scoreBreakdown.hasDisproportionateShutdown && (
+                  <div className="text-amber-400">
+                    • Penalty applied: Company-wide export shutdown was disproportionate to the
+                    isolated configuration issue.
+                  </div>
+                )}
+                {scoreBreakdown.hasUnsafeRecovery && (
+                  <div className="text-red-400">
+                    • Penalty applied: Re-enabling cron jobs unverified risks repeating exposure.
+                  </div>
+                )}
+                {scoreBreakdown.declaredPrematureBreach && (
+                  <div className="text-amber-400">
+                    • Deducted points: Declaring confirmed external breach contradicts evidence
+                    showing external transmission is unproven.
+                  </div>
+                )}
+                {!scoreBreakdown.hasDestructiveActions &&
+                  !scoreBreakdown.hasDisproportionateShutdown &&
+                  !scoreBreakdown.declaredPrematureBreach && (
+                    <div className="text-emerald-400">
+                      ✓ Strong forensic discipline: Avoided destructive actions, respected
+                      evidentiary boundaries, and properly prioritized non-destructive containment.
+                    </div>
+                  )}
+              </div>
             </div>
-          </div>
 
-          {/* Generated Official Final Incident Report Document */}
-          <div className="border border-border bg-card p-6 md:p-8 space-y-6">
-            <div className="border-b border-border pb-5">
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <div className="font-mono text-xs text-muted-foreground">
-                  NOVACORP CYBER FORENSICS & INCIDENT RESPONSE (IR)
+            {/* Evidence-Based Case Conclusions */}
+            <div className="mt-6 space-y-4">
+              <div className="border-l-4 border-emerald-500 bg-emerald-950/30 p-4">
+                <h3 className="font-mono text-xs font-bold uppercase tracking-wider text-emerald-400">
+                  CRITICAL FORENSIC BOUNDARY STATEMENT
+                </h3>
+                <p className="mt-1 font-mono text-xs leading-relaxed text-zinc-200">
+                  Based on all technical evidence collected across network flows, identity tokens,
+                  cryptographic artifact analyses, and witness depositions:{" "}
+                  <strong className="text-emerald-300">
+                    External exfiltration across the Internet perimeter and deliberate human malice
+                    have NOT been established.
+                  </strong>{" "}
+                  The incident represents an overprivileged automated workflow execution that
+                  accessed and staged confidential roadmap data within internal infrastructure.
+                </p>
+              </div>
+
+              <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                <div className="space-y-2 border border-border bg-card p-4">
+                  <h4 className="font-mono text-xs font-bold uppercase tracking-wider text-emerald-400">
+                    1. Confirmed Technical Facts
+                  </h4>
+                  <ul className="list-disc space-y-1 pl-5 text-xs text-muted-foreground">
+                    <li>
+                      <strong className="text-foreground">Overprivileged Role:</strong> Service
+                      account <code>svc-exportbridge</code> inherited wildcard{" "}
+                      <code>/projects/*</code> read access in config v17 (commit{" "}
+                      <code>a94f2b1</code>).
+                    </li>
+                    <li>
+                      <strong className="text-foreground">Internal Staging Verified:</strong>{" "}
+                      Workflow job EB-2041 accessed <code>/projects/glasshouse/roadmap</code> and
+                      created archive <code>PKG-8842</code> in internal storage.
+                    </li>
+                    <li>
+                      <strong className="text-foreground">Cryptographic Match:</strong> Acquired
+                      evidence artifact <code>EVD-RAW-001</code> SHA-256 strictly matches the staged
+                      vault package.
+                    </li>
+                    <li>
+                      <strong className="text-foreground">Working Copy Variance:</strong> Binary
+                      comparison proved hash differences in working copies stem solely from standard
+                      tar header creation timestamps.
+                    </li>
+                  </ul>
                 </div>
-                <div className="font-mono text-xs text-zinc-500">
-                  DOCUMENT REF: IR-2026-BF007-FINAL
+
+                <div className="space-y-2 border border-border bg-card p-4">
+                  <h4 className="font-mono text-xs font-bold uppercase tracking-wider text-amber-400">
+                    2. Evidentiary Bounds & Unconfirmed Claims
+                  </h4>
+                  <ul className="list-disc space-y-1 pl-5 text-xs text-muted-foreground">
+                    <li>
+                      <strong className="text-foreground">External Exfiltration:</strong> Perimeter
+                      NetFlow (NET-10) and egress proxy logs recorded zero outbound transmission of
+                      archive PKG-8842.
+                    </li>
+                    <li>
+                      <strong className="text-foreground">Third-Party Receipt:</strong> Partner SFTP
+                      confirmation logs have not recorded delivery of Glasshouse files.
+                    </li>
+                    <li>
+                      <strong className="text-foreground">Insider Malice Unproven:</strong>{" "}
+                      Technical and witness records show Elena Rostova and Mira Vance did not
+                      intentionally exfiltrate corporate assets.
+                    </li>
+                    <li>
+                      <strong className="text-foreground">Governance Failure:</strong> The incident
+                      stemmed from deficient PR policy enforcement, missing configuration linters,
+                      and insufficient IAM scoping.
+                    </li>
+                  </ul>
                 </div>
               </div>
-              <h2 className="mt-2 font-mono text-2xl font-bold tracking-tight text-foreground">
-                FORMAL INCIDENT RESPONSE REPORT — CASE 07: THE GLASSHOUSE INCIDENT
-              </h2>
-              <div className="mt-2 flex flex-wrap gap-4 font-mono text-xs text-muted-foreground">
-                <span>Date: 2026-10-17</span>
-                <span>Classification: STRICTLY CONFIDENTIAL // INTERNAL IR ONLY</span>
-                <span>Status: {isSubmitted || done ? "FINAL / SUBMITTED" : "DRAFT"}</span>
-              </div>
             </div>
 
-            {/* Mandatory Forensic Stance Callout */}
-            <div className="border-l-4 border-emerald-500 bg-emerald-950/30 p-4">
+            {/* Incident Response Summary */}
+            <div className="mt-6 space-y-4 border border-border bg-card p-5">
               <h3 className="font-mono text-xs font-bold uppercase tracking-wider text-emerald-400">
-                CRITICAL FORENSIC BOUNDARY STATEMENT
+                PARTICIPANT RESPONSE SUMMARY
               </h3>
-              <p className="mt-1 font-mono text-xs leading-relaxed text-zinc-200">
-                Based on all technical evidence collected across network flows, identity tokens,
-                cryptographic artifact analyses, and witness depositions:{" "}
-                <strong className="text-emerald-300">
-                  External exfiltration across the Internet perimeter and deliberate human malice
-                  have NOT been established.
-                </strong>{" "}
-                The incident represents an overprivileged automated workflow execution that accessed
-                and staged confidential roadmap data within internal infrastructure.
-              </p>
-            </div>
-
-            {/* 1. Executive Summary */}
-            <div className="space-y-2">
-              <h3 className="font-mono text-sm font-bold uppercase tracking-wider text-emerald-400">
-                1. Executive Summary
-              </h3>
-              <p className="text-xs text-muted-foreground leading-relaxed">
-                At 09:40:00 UTC, security monitoring generated alert ALT-8821 after the automated
-                ExportBridge batch pipeline (Job EB-2041) executing as service identity{" "}
-                <code>svc-exportbridge</code> requested and successfully read the restricted Project
-                Glasshouse roadmap (<code>/projects/glasshouse/roadmap</code>) and staged archive
-                package <code>PKG-8842</code> in internal object storage. Forensic analysis
-                confirmed that configuration v17 (commit <code>a94f2b1</code> authored by Mira
-                Vance) introduced an overbroad <code>/projects/*</code> wildcard filter. The staged
-                archive matches the acquired artifact hash; minor variations in secondary working
-                copies were verified as benign tar timestamp metadata. The incident response team
-                executed targeted containment, preserved all relevant forensic logs, and scoped
-                remediation.
-              </p>
-            </div>
-
-            {/* 2. Incident Timeline */}
-            <div className="space-y-2">
-              <h3 className="font-mono text-sm font-bold uppercase tracking-wider text-emerald-400">
-                2. Reconstructed Incident Timeline (UTC)
-              </h3>
-              <div className="border border-border/80 bg-black/40 p-3 font-mono text-xs space-y-2">
-                <div className="flex gap-4">
-                  <span className="text-emerald-400 shrink-0">08:45:10</span>
-                  <span className="text-muted-foreground">
-                    Project Lead Elena Rostova accesses roadmap via interactive web session
-                    (DOC-WEB-205).
-                  </span>
+              <div className="grid grid-cols-1 gap-4 text-xs text-muted-foreground md:grid-cols-2">
+                <div className="space-y-1.5">
+                  <p>
+                    <strong className="text-foreground">Containment Actions: </strong>
+                    {phase1.selectedActionIds
+                      .map((id) => CONTAINMENT_ACTIONS.find((a) => a.id === id)?.title)
+                      .join("; ") || "None"}
+                  </p>
+                  <p>
+                    <strong className="text-foreground">Tactical Justification: </strong>
+                    {phase1.justification || "None recorded."}
+                  </p>
+                  <p>
+                    <strong className="text-foreground">Preserved Sources: </strong>
+                    {phase2.selectedSourceIds
+                      .map((id) => PRESERVATION_SOURCES.find((s) => s.id === id)?.sourceName)
+                      .join("; ") || "None"}
+                  </p>
                 </div>
-                <div className="flex gap-4">
-                  <span className="text-emerald-400 shrink-0">09:32:08</span>
-                  <span className="text-muted-foreground">
-                    ExportBridge scheduler initiates scheduled weekly job EB-2041 on worker
-                    export-worker-03 (SCH-01).
-                  </span>
-                </div>
-                <div className="flex gap-4">
-                  <span className="text-emerald-400 shrink-0">09:36:18</span>
-                  <span className="text-muted-foreground">
-                    STS issues service token for svc-exportbridge; application gateway receives
-                    request (AUTH-05, STS-ISS-208).
-                  </span>
-                </div>
-                <div className="flex gap-4">
-                  <span className="text-emerald-400 shrink-0">09:37:02</span>
-                  <span className="text-muted-foreground">
-                    Document service logs READ_SUCCESS for /projects/glasshouse/roadmap (DOC-06).
-                  </span>
-                </div>
-                <div className="flex gap-4">
-                  <span className="text-emerald-400 shrink-0">09:39:41</span>
-                  <span className="text-muted-foreground">
-                    Worker stages export package PKG-8842 in internal storage (EXP-09, EVD-RAW-001).
-                  </span>
-                </div>
-                <div className="flex gap-4">
-                  <span className="text-emerald-400 shrink-0">09:39:53</span>
-                  <span className="text-muted-foreground">
-                    No egress transfer matching PKG-8842 observed in perimeter firewall flows
-                    (NET-10).
-                  </span>
-                </div>
-                <div className="flex gap-4">
-                  <span className="text-emerald-400 shrink-0">09:40:00</span>
-                  <span className="text-muted-foreground">
-                    Security operations alert ALT-8821 triggered on restricted document access
-                    (AUTH-11).
-                  </span>
-                </div>
-                <div className="flex gap-4">
-                  <span className="text-emerald-400 shrink-0">09:40:31</span>
-                  <span className="text-muted-foreground">
-                    Job EB-2041 worker process reports COMPLETED workflow state (SYS-12).
-                  </span>
+                <div className="space-y-1.5">
+                  <p>
+                    <strong className="text-foreground">Evidence Custodian: </strong>{" "}
+                    {phase2.custodian || "Lead Forensic Investigator"}
+                  </p>
+                  <p>
+                    <strong className="text-foreground">Approved Recovery Steps: </strong>
+                    {phase3.selectedRecoveryStepIds
+                      .map((id) => SAFE_RECOVERY_STEPS.find((s) => s.id === id)?.title)
+                      .join("; ") || "None"}
+                  </p>
+                  <p>
+                    <strong className="text-foreground">Response Decision Posture: </strong>
+                    {RESPONSE_DECISION_OPTIONS.find((o) => o.id === phase4.decisionId)?.label ||
+                      "Proportionate"}
+                  </p>
                 </div>
               </div>
             </div>
 
-            {/* 3. Confirmed Findings */}
-            <div className="space-y-2">
-              <h3 className="font-mono text-sm font-bold uppercase tracking-wider text-emerald-400">
-                3. Confirmed Technical Findings
-              </h3>
-              <ul className="list-disc pl-5 text-xs text-muted-foreground space-y-1">
-                <li>
-                  <strong className="text-foreground">Overprivileged Role:</strong> The service
-                  identity <code>svc-exportbridge</code> inherited excessive S3 and document-read
-                  permissions without directory boundary restrictions.
-                </li>
-                <li>
-                  <strong className="text-foreground">Automated Document Access:</strong> Document
-                  gateway logs confirm an automated GET request executed via legitimate STS bearer
-                  token.
-                </li>
-                <li>
-                  <strong className="text-foreground">Internal Staging Confirmed:</strong> Package{" "}
-                  <code>PKG-8842</code> was created and stored inside the internal vault bucket.
-                </li>
-                <li>
-                  <strong className="text-foreground">Cryptographic Hash Verification:</strong> The
-                  SHA-256 hash of the staged package strictly matches the acquired evidence artifact{" "}
-                  <code>EVD-RAW-001</code>.
-                </li>
-                <li>
-                  <strong className="text-foreground">Working Copy Hash Explained:</strong> Binary
-                  comparison proved that differences in working copy hashes were entirely due to
-                  standard tar header creation timestamps, not payload tampering.
-                </li>
-              </ul>
-            </div>
-
-            {/* 4. Evidence Limitations */}
-            <div className="space-y-2">
-              <h3 className="font-mono text-sm font-bold uppercase tracking-wider text-emerald-400">
-                4. Evidence Limitations & Boundary of Proof
-              </h3>
-              <ul className="list-disc pl-5 text-xs text-muted-foreground space-y-1">
-                <li>
-                  NetFlow and egress logs do not inspect application payload or record package IDs;
-                  the absence of an observed flow does not mathematically prove non-egress, but no
-                  positive flow correlates with PKG-8842.
-                </li>
-                <li>
-                  Partner SFTP/API endpoints have not yet provided third-party confirmation logs.
-                </li>
-                <li>
-                  Ephemeral container execution memory was terminated when job EB-2041 completed.
-                </li>
-              </ul>
-            </div>
-
-            {/* 5. Containment Actions */}
-            <div className="space-y-2">
-              <h3 className="font-mono text-sm font-bold uppercase tracking-wider text-emerald-400">
-                5. Containment Actions Executed
-              </h3>
-              <div className="space-y-1.5 text-xs text-muted-foreground">
-                <p>
-                  <strong>Selected Actions: </strong>
-                  {phase1.selectedActionIds
-                    .map((id) => CONTAINMENT_ACTIONS.find((a) => a.id === id)?.title)
-                    .join("; ") || "None"}
-                </p>
-                <p>
-                  <strong>Tactical Justification: </strong>
-                  {phase1.justification || "No justification recorded."}
-                </p>
-              </div>
-            </div>
-
-            {/* 6. Preservation Plan */}
-            <div className="space-y-2">
-              <h3 className="font-mono text-sm font-bold uppercase tracking-wider text-emerald-400">
-                6. Evidence Preservation & Chain of Custody Plan
-              </h3>
-              <div className="space-y-1.5 text-xs text-muted-foreground">
-                <p>
-                  <strong>Preserved Sources: </strong>
-                  {phase2.selectedSourceIds
-                    .map((id) => PRESERVATION_SOURCES.find((s) => s.id === id)?.sourceName)
-                    .join("; ") || "None"}
-                </p>
-                <p>
-                  <strong>Evidence Custodian: </strong> {phase2.custodian}
-                </p>
-                <p>
-                  <strong>Acquisition & Integrity Method: </strong> {phase2.acquisitionMethod}
-                </p>
-                <p>
-                  <strong>Storage Enclave: </strong> {phase2.evidenceLockerLocation}
-                </p>
-                <p>
-                  <strong>Chain of Custody Protocol: </strong>
-                  {phase2.chainOfCustodyNotes || "Standard forensic hold."}
-                </p>
-              </div>
-            </div>
-
-            {/* 7. Scope & Recovery Plan */}
-            <div className="space-y-2">
-              <h3 className="font-mono text-sm font-bold uppercase tracking-wider text-emerald-400">
-                7. Scope Investigation & Safe Recovery Strategy
-              </h3>
-              <div className="space-y-1.5 text-xs text-muted-foreground">
-                <p>
-                  <strong>Approved Recovery Controls: </strong>
-                  {phase3.selectedRecoveryStepIds
-                    .map((id) => SAFE_RECOVERY_STEPS.find((s) => s.id === id)?.title)
-                    .join("; ") || "None"}
-                </p>
-                <p>
-                  <strong>Recovery Validation Rationale: </strong>
-                  {phase3.recoveryPlanRationale || "None documented."}
-                </p>
-              </div>
-            </div>
-
-            {/* 8. Remaining Risks and Unanswered Questions */}
-            <div className="space-y-2">
-              <h3 className="font-mono text-sm font-bold uppercase tracking-wider text-emerald-400">
-                8. Remaining Risks & Unanswered Questions
-              </h3>
-              <ul className="list-disc pl-5 text-xs text-muted-foreground space-y-1">
-                <li>
-                  Whether any partner SFTP servers received secondary automated data streams prior
-                  to job suspension.
-                </li>
-                <li>
-                  Whether other microservices possess dormant wildcard permissions in legacy
-                  configuration templates.
-                </li>
-                <li>
-                  Final verification of Mira Vance's commit history across other repository
-                  branches.
-                </li>
-              </ul>
-            </div>
-
-            {/* 9. Recommended Next Steps */}
-            <div className="space-y-2">
-              <h3 className="font-mono text-sm font-bold uppercase tracking-wider text-emerald-400">
-                9. Recommended Next Steps & Governance
-              </h3>
-              <p className="text-xs text-muted-foreground leading-relaxed">
-                {phase4.nextInvestigationSteps ||
-                  "Perform third-party partner log reconciliation, implement CI/CD policy linting, and enforce two-person rule for IAM configuration changes."}
-              </p>
-            </div>
-
-            {/* Final Action Submission Bar */}
+            {/* Navigation and Completion Status */}
             <div className="mt-8 flex flex-wrap items-center justify-between gap-4 border-t border-border pt-6">
               <button
                 onClick={() => navigateToPhase(4)}
@@ -1617,26 +1521,9 @@ export function IncidentResponse({
                 <ChevronLeft className="h-4 w-4" /> BACK TO DECISION
               </button>
 
-              <div className="flex items-center gap-3">
-                {!done && !isSubmitted && (
-                  <button
-                    onClick={() => {
-                      setIsSubmitted(true);
-                      onComplete();
-                    }}
-                    className="flex items-center gap-2 bg-emerald-500 px-6 py-3 font-mono text-xs font-bold uppercase tracking-wider text-black transition-colors hover:bg-emerald-400"
-                  >
-                    <Send className="h-4 w-4" />
-                    SUBMIT FINAL INCIDENT REPORT & CONCLUDE CASE 07
-                  </button>
-                )}
-
-                {(done || isSubmitted) && (
-                  <div className="flex items-center gap-2 font-mono text-xs font-bold text-emerald-400">
-                    <CheckCircle2 className="h-5 w-5" />
-                    CASE 07 INVESTIGATION & RESPONSE COMPLETE
-                  </div>
-                )}
+              <div className="flex items-center gap-2 font-mono text-xs font-bold text-emerald-400">
+                <CheckCircle2 className="h-5 w-5" />
+                CASE 07 INVESTIGATION & RESPONSE COMPLETE
               </div>
             </div>
           </div>

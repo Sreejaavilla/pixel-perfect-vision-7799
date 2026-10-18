@@ -347,7 +347,7 @@ function Dashboard() {
 
     initAuth();
 
-    const { data: authSubscription } = supabase.auth.onAuthStateChange((_event, session) => {
+    const { data: authSubscription } = supabase.auth.onAuthStateChange((event, session) => {
       if (session?.user) {
         setAuthToken(session.access_token);
         setUser({
@@ -356,6 +356,9 @@ function Dashboard() {
           username: session.user.user_metadata?.username,
           role: "participant",
         });
+        if (event === "PASSWORD_RECOVERY") {
+          setShowAuthModal(true);
+        }
       } else {
         setUser(null);
         setAuthToken(undefined);

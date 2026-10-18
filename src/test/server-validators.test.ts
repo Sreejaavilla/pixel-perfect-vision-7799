@@ -28,7 +28,20 @@ describe("Authoritative Server-side Stage Validators", () => {
 
       expect(result.score).toBe(100);
       expect(result.passed).toBe(true);
-      expect(result.breakdown.avoidsOverclaim).toBe(true);
+      expect(result.breakdown["avoidsOverclaim"]).toBe(true);
+    });
+
+    it("does not award extra evidence points for duplicate IDs", () => {
+      const payload = {
+        finding: "Access and staging are supported; external delivery is unconfirmed.",
+        alternative: "A routine scheduled export could explain the staging activity.",
+        nextEvidence: "Request recipient-side transfer logs for the relevant time window.",
+        reasoning: "The read and staging records are present, while no delivery is confirmed.",
+      };
+
+      const single = validateStage1({ ...payload, evidenceIds: "EXP-09" });
+      const repeated = validateStage1({ ...payload, evidenceIds: "EXP-09 EXP-09 EXP-09" });
+      expect(repeated.score).toBe(single.score);
     });
   });
 
@@ -47,6 +60,24 @@ describe("Authoritative Server-side Stage Validators", () => {
 
       expect(cleanResult.score).toBeGreaterThanOrEqual(75);
       expect(cleanResult.passed).toBe(true);
+    });
+
+    it("counts only distinct evidence and timeline IDs", () => {
+      const payload = {
+        evidenceIds: ["IAM-POL-201"],
+        timelineIds: ["IAM-POL-201", "STS-ISS-208", "OBJ-RET-213"],
+        establishedVsUnknown:
+          "Machine authentication is established; external delivery is unknown.",
+        alternative: "A routine configuration change may explain the policy state.",
+        nextEvidence: "Request the full change review and deployment records.",
+      };
+      const unique = validateStage2(payload);
+      const repeated = validateStage2({
+        ...payload,
+        evidenceIds: ["IAM-POL-201", "IAM-POL-201", "IAM-POL-201"],
+        timelineIds: [...payload.timelineIds, ...payload.timelineIds],
+      });
+      expect(repeated.score).toBe(unique.score);
     });
   });
 
@@ -73,6 +104,17 @@ describe("Authoritative Server-side Stage Validators", () => {
       expect(result.score).toBeGreaterThanOrEqual(50);
       expect(result.passed).toBe(true);
     });
+
+    it("does not award integrity points for duplicate or unknown artifact comparisons", () => {
+      const result = validateStage3({
+        comparisonsLedger: [
+          { artifactA: "ART-UNKNOWN-1", artifactB: "ART-UNKNOWN-2", relation: "identical" },
+          { artifactA: "ART-UNKNOWN-1", artifactB: "ART-UNKNOWN-2", relation: "identical" },
+          { artifactA: "ART-UNKNOWN-3", artifactB: "ART-UNKNOWN-4", relation: "identical" },
+        ],
+      });
+      expect(result.breakdown["integrityScore"]).toBe(0);
+    });
   });
 
   describe("Stage 4 - Witness Investigation", () => {
@@ -95,6 +137,24 @@ describe("Authoritative Server-side Stage Validators", () => {
       expect(result.score).toBeGreaterThanOrEqual(75);
       expect(result.passed).toBe(true);
     });
+
+    it("does not award citation points for unrecognized claim keys", () => {
+      const payload = {
+        claimEvaluations: {
+          EXTRA_1: {
+            status: "corroborated",
+            justification: "A sufficiently long fabricated claim justification.",
+          },
+          EXTRA_2: {
+            status: "corroborated",
+            justification: "Another sufficiently long fabricated justification.",
+          },
+        },
+      };
+      const result = validateStage4(payload);
+      expect(result.breakdown["citationScore"]).toBe(0);
+      expect(result.passed).toBe(false);
+    });
   });
 
   describe("Stage 5 - Incident Response", () => {
@@ -109,7 +169,13 @@ describe("Authoritative Server-side Stage Validators", () => {
 
       const result = validateStage5(destructiveState);
       expect(result.passed).toBe(false);
-      expect(result.breakdown.hasDestructiveActions).toBe(true);
+      expect(result.breakdown["hasDestructiveActions"]).toBe(true);
+    });
+
+    it("returns a failed validation for malformed payloads instead of throwing", () => {
+      const result = validateStage5(null as never);
+      expect(result.passed).toBe(false);
+      expect(result.score).toBe(0);
     });
   });
 

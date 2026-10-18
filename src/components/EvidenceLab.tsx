@@ -59,7 +59,7 @@ export function EvidenceLab({
   onComplete,
 }: {
   done: boolean;
-  authToken?: string;
+  authToken?: string | undefined;
   onComplete: () => void;
 }) {
   // Navigation & phase state

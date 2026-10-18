@@ -5,7 +5,12 @@ import { Shield, Key, Mail, User, AlertCircle, CheckCircle2, LogOut, KeyRound } 
 export type AuthMode = "signin" | "signup" | "forgot";
 
 interface AuthModalProps {
-  user: { id: string; email?: string; username?: string; role?: string } | null;
+  user: {
+    id: string;
+    email?: string | undefined;
+    username?: string | undefined;
+    role?: string | undefined;
+  } | null;
   onAuthChange: () => void;
   onClose: () => void;
   initialMode?: AuthMode;
@@ -58,9 +63,10 @@ export function AuthModal({ user, onAuthChange, onClose, initialMode = "signin" 
           setSuccess("Confirmation email sent. Please check your inbox to verify your account.");
         }
       } else if (mode === "forgot") {
-        const { error: resetError } = await supabase.auth.resetPasswordForEmail(email, {
-          redirectTo: typeof window !== "undefined" ? window.location.origin : undefined,
-        });
+        const { error: resetError } = await supabase.auth.resetPasswordForEmail(
+          email,
+          typeof window !== "undefined" ? { redirectTo: window.location.origin } : {},
+        );
 
         if (resetError) throw resetError;
         setSuccess("Password reset email sent. Please check your inbox for instructions.");

@@ -18,9 +18,31 @@ export type StageValidationResult = {
   score: number;
   maxScore: number;
   passed: boolean;
-  breakdown: Record<string, unknown>;
+  breakdown: Record<string, SerializableValue>;
   remarks: string;
 };
+
+export type SerializableValue =
+  string | number | boolean | null | SerializableValue[] | { [key: string]: SerializableValue };
+
+function asRecord(value: unknown): Record<string, unknown> {
+  return value !== null && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : {};
+}
+
+function asText(value: unknown): string {
+  return typeof value === "string" ? value : "";
+}
+
+function uniqueIds(value: unknown): string[] {
+  const ids = Array.isArray(value)
+    ? value.filter((id): id is string => typeof id === "string")
+    : typeof value === "string"
+      ? value.split(/[\s,;]+/)
+      : [];
+  return [...new Set(ids.map((id) => id.toUpperCase().trim()).filter(Boolean))];
+}
 
 // ----------------------------------------------------------------------------
 // STAGE 1: Network Investigation
@@ -34,19 +56,13 @@ export type Stage1Payload = {
 };
 
 export function validateStage1(payload: Stage1Payload): StageValidationResult {
-  const finding = (payload.finding || "").trim();
-  const rawIds = payload.evidenceIds;
-  const submittedIds: string[] = Array.isArray(rawIds)
-    ? rawIds.map((id) => String(id).toUpperCase().trim())
-    : String(rawIds || "")
-        .toUpperCase()
-        .split(/[\s,;]+/)
-        .map((s) => s.trim())
-        .filter(Boolean);
+  const safePayload = asRecord(payload) as Stage1Payload;
+  const finding = asText(safePayload.finding).trim();
+  const submittedIds = uniqueIds(safePayload.evidenceIds);
 
-  const alternative = (payload.alternative || "").trim();
-  const nextEvidence = (payload.nextEvidence || "").trim();
-  const reasoning = (payload.reasoning || "").trim();
+  const alternative = asText(safePayload.alternative).trim();
+  const nextEvidence = asText(safePayload.nextEvidence).trim();
+  const reasoning = asText(safePayload.reasoning).trim();
 
   const supportedIds = ["SCH-01", "AUTH-05", "DOC-06", "EXP-09"];
   const usefulIds = submittedIds.filter((id) => supportedIds.includes(id));
@@ -112,20 +128,14 @@ export type Stage2Payload = {
 };
 
 export function validateStage2(payload: Stage2Payload): StageValidationResult {
-  const rawIds = payload.evidenceIds;
-  const submittedIds: string[] = Array.isArray(rawIds)
-    ? rawIds.map((id) => String(id).toUpperCase().trim())
-    : String(rawIds || "")
-        .toUpperCase()
-        .split(/[\s,;]+/)
-        .map((s) => s.trim())
-        .filter(Boolean);
+  const safePayload = asRecord(payload) as Stage2Payload;
+  const submittedIds = uniqueIds(safePayload.evidenceIds);
 
-  const finding = (payload.finding || "").trim();
-  const timelineIds = payload.timelineIds || [];
-  const establishedVsUnknown = (payload.establishedVsUnknown || "").trim();
-  const alternative = (payload.alternative || "").trim();
-  const nextEvidence = (payload.nextEvidence || "").trim();
+  const finding = asText(safePayload.finding).trim();
+  const timelineIds = uniqueIds(safePayload.timelineIds);
+  const establishedVsUnknown = asText(safePayload.establishedVsUnknown).trim();
+  const alternative = asText(safePayload.alternative).trim();
+  const nextEvidence = asText(safePayload.nextEvidence).trim();
 
   const keySupportedIds = [
     "IAM-POL-201",
@@ -218,13 +228,37 @@ export type Stage3Payload = {
 };
 
 export function validateStage3(payload: Stage3Payload): StageValidationResult {
-  const classifications = payload.classifications || {};
-  const comparisonsLedger = payload.comparisonsLedger || [];
-  const claimAssessments = payload.claimAssessments || {};
-  const selectedFindingId = payload.selectedFindingId || "";
-  const selectedLimitationId = payload.selectedLimitationId || "";
-  const selectedNextStepId = payload.selectedNextStepId || "";
-  const alternativeTheory = (payload.alternativeTheory || "").trim();
+  const safePayload = asRecord(payload) as Stage3Payload;
+  const classifications = asRecord(safePayload.classifications) as NonNullable<
+    Stage3Payload["classifications"]
+  >;
+  const knownArtifactIds = new Set(STAGE3_ARTIFACTS.map((artifact) => artifact.id));
+  const comparisonsLedger = Array.isArray(safePayload.comparisonsLedger)
+    ? safePayload.comparisonsLedger.filter(
+        (item) =>
+          item &&
+          typeof item === "object" &&
+          knownArtifactIds.has(item.artifactA) &&
+          knownArtifactIds.has(item.artifactB) &&
+          item.artifactA !== item.artifactB &&
+          ["identical", "altered_metadata", "incomparable"].includes(item.relation),
+      )
+    : [];
+  const uniqueComparisons = Array.from(
+    new Map(
+      comparisonsLedger.map((comparison) => {
+        const pair = [comparison.artifactA, comparison.artifactB].sort().join(":");
+        return [pair, comparison] as const;
+      }),
+    ).values(),
+  );
+  const claimAssessments = asRecord(safePayload.claimAssessments) as NonNullable<
+    Stage3Payload["claimAssessments"]
+  >;
+  const selectedFindingId = asText(safePayload.selectedFindingId);
+  const selectedLimitationId = asText(safePayload.selectedLimitationId);
+  const selectedNextStepId = asText(safePayload.selectedNextStepId);
+  const alternativeTheory = asText(safePayload.alternativeTheory).trim();
 
   // 1. Provenance Score (up to 25 pts)
   let provenanceScore = 0;
@@ -259,7 +293,7 @@ export function validateStage3(payload: Stage3Payload): StageValidationResult {
 
   if (hasBitstreamIdentity) integrityScore += 10;
   if (hasWorkingCopyDifference) integrityScore += 10;
-  if (hasIncomparableOrDecoy || comparisonsLedger.length >= 3) integrityScore += 5;
+  if (hasIncomparableOrDecoy || uniqueComparisons.length >= 3) integrityScore += 5;
   integrityScore = Math.min(25, integrityScore);
 
   // 3. Claims Score (up to 20 pts: 5 each)
@@ -334,11 +368,14 @@ export type Stage4Payload = {
 };
 
 export function validateStage4(payload: Stage4Payload): StageValidationResult {
-  const claimEvaluations = payload.claimEvaluations || {};
-  const accountPreference = payload.accountPreference || "";
-  const conferenceUnresolvedId = payload.conferenceUnresolvedId || "";
-  const conferenceExplainedId = payload.conferenceExplainedId || "";
-  const conferenceNextInquiryId = payload.conferenceNextInquiryId || "";
+  const safePayload = asRecord(payload) as Stage4Payload;
+  const claimEvaluations = asRecord(safePayload.claimEvaluations) as NonNullable<
+    Stage4Payload["claimEvaluations"]
+  >;
+  const accountPreference = asText(safePayload.accountPreference);
+  const conferenceUnresolvedId = asText(safePayload.conferenceUnresolvedId);
+  const conferenceExplainedId = asText(safePayload.conferenceExplainedId);
+  const conferenceNextInquiryId = asText(safePayload.conferenceNextInquiryId);
 
   // 1. Claims checks (max 30)
   const expectedClaimStatuses: Record<string, string> = {
@@ -379,8 +416,12 @@ export function validateStage4(payload: Stage4Payload): StageValidationResult {
 
   // 3. Citations & Justifications (max 20)
   let citationScore = 0;
-  for (const evaluation of Object.values(claimEvaluations)) {
-    if (evaluation.justification && evaluation.justification.trim().length >= 25) {
+  for (const id of Object.keys(expectedClaimStatuses)) {
+    const evaluation = claimEvaluations[id];
+    if (
+      typeof evaluation?.justification === "string" &&
+      evaluation.justification.trim().length >= 25
+    ) {
       citationScore += 3.5;
     }
   }
@@ -425,7 +466,19 @@ export function validateStage4(payload: Stage4Payload): StageValidationResult {
 // STAGE 5: Incident Response
 // ----------------------------------------------------------------------------
 export function validateStage5(payload: IncidentResponseState): StageValidationResult {
-  const scoreResult = calculateIncidentResponseScore(payload);
+  let scoreResult: ReturnType<typeof calculateIncidentResponseScore>;
+  try {
+    scoreResult = calculateIncidentResponseScore(payload);
+  } catch {
+    return {
+      stageId: 5,
+      score: 0,
+      maxScore: 100,
+      passed: false,
+      breakdown: { invalidPayload: true },
+      remarks: "Invalid incident response submission. Review the form and try again.",
+    };
+  }
   const passed = scoreResult.total >= 50 && !scoreResult.hasDestructiveActions;
 
   return {
@@ -433,7 +486,7 @@ export function validateStage5(payload: IncidentResponseState): StageValidationR
     score: scoreResult.total,
     maxScore: 100,
     passed,
-    breakdown: scoreResult,
+    breakdown: { ...scoreResult },
     remarks: passed
       ? "Stage 05 Incident Response response validated: Defensible, proportionate action."
       : scoreResult.hasDestructiveActions

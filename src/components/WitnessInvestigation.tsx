@@ -81,7 +81,7 @@ export function WitnessInvestigation({
   onComplete,
 }: {
   done: boolean;
-  authToken?: string;
+  authToken?: string | undefined;
   onComplete: () => void;
 }) {
   // Navigation

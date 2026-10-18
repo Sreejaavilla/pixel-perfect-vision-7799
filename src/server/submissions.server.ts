@@ -9,6 +9,7 @@ import {
   type Stage2Payload,
   type Stage3Payload,
   type Stage4Payload,
+  type SerializableValue,
 } from "./stage-validators";
 import { getSupabaseAdminClient, isServerSupabaseReady } from "./supabase-server";
 import type { IncidentResponseState } from "../lib/stage5-response";
@@ -25,7 +26,7 @@ export type SubmitStageResponse = {
   score: number;
   passed: boolean;
   remarks: string;
-  breakdown: Record<string, unknown>;
+  breakdown: Record<string, SerializableValue>;
   persistedToSupabase: boolean;
   totalScore?: number;
   completedStages?: number[];
@@ -80,7 +81,9 @@ export async function executeStageSubmission(data: SubmitStageInput): Promise<Su
         .maybeSingle();
       if (progressError) throw progressError;
 
-      const existingCompleted = (progress?.completed_stages as number[]) || [];
+      const existingCompleted = ((progress?.completed_stages as number[]) || []).filter(
+        (stage): stage is 1 | 2 | 3 | 4 | 5 => Number.isInteger(stage) && stage >= 1 && stage <= 5,
+      );
       const highestCompleted = Math.max(0, ...existingCompleted);
       if (stageId > highestCompleted + 1) {
         throw new Error(`Complete stage ${highestCompleted + 1} before submitting this stage.`);
@@ -102,7 +105,9 @@ export async function executeStageSubmission(data: SubmitStageInput): Promise<Su
       const updatedScores = { ...existingScores, [String(stageId)]: updatedStageScore };
 
       const updatedCompleted = result.passed
-        ? Array.from(new Set([...existingCompleted, stageId])).sort((a, b) => a - b)
+        ? (Array.from(new Set([...existingCompleted, stageId as 1 | 2 | 3 | 4 | 5])).sort(
+            (a, b) => a - b,
+          ) as (1 | 2 | 3 | 4 | 5)[])
         : existingCompleted;
 
       const updatedTotal = Object.values(updatedScores).reduce((acc, s) => acc + s, 0);

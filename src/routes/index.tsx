@@ -299,9 +299,9 @@ function Dashboard() {
   const [view, setView] = useState<View>("overview");
   const [user, setUser] = useState<{
     id: string;
-    email?: string;
-    username?: string;
-    role?: string;
+    email?: string | undefined;
+    username?: string | undefined;
+    role?: string | undefined;
   } | null>(null);
   const [showAuthModal, setShowAuthModal] = useState(false);
   const [authToken, setAuthToken] = useState<string | undefined>(undefined);
@@ -326,7 +326,7 @@ function Dashboard() {
           setUser({
             id: session.user.id,
             email: session.user.email,
-            username: profile?.username || session.user.user_metadata?.username,
+            username: profile?.username || session.user.user_metadata?.["username"],
             role: profile?.role || "participant",
           });
 
@@ -519,7 +519,7 @@ function Dashboard() {
               setUser({
                 id: session.user.id,
                 email: session.user.email,
-                username: session.user.user_metadata?.username,
+                username: session.user.user_metadata?.["username"],
                 role: "participant",
               });
               return supabase
@@ -532,7 +532,7 @@ function Dashboard() {
                     current?.id === session.user.id
                       ? {
                           ...current,
-                          username: profile?.username || session.user.user_metadata?.username,
+                          username: profile?.username || session.user.user_metadata?.["username"],
                           role: profile?.role || "participant",
                         }
                       : current,
@@ -700,7 +700,7 @@ function StageView({
 }: {
   stage: Stage;
   done: boolean;
-  authToken?: string;
+  authToken?: string | undefined;
   onBack: () => void;
   onComplete: () => void;
 }) {
@@ -744,7 +744,7 @@ function NetworkInvestigation({
   onComplete,
 }: {
   done: boolean;
-  authToken?: string;
+  authToken?: string | undefined;
   onComplete: () => void;
 }) {
   const [search, setSearch] = useState("");
@@ -846,13 +846,12 @@ function NetworkInvestigation({
       setSyncedToSupabase(res.persistedToSupabase);
       setSubmitted(true);
     } catch {
-      const localScore = reportScore();
-      setServerScore(localScore);
-      setServerPassed(localScore >= 50);
-      setServerRejected(false);
-      setServerRemarks("Preliminary local automated check completed.");
+      setServerScore(null);
+      setServerPassed(false);
+      setServerRejected(true);
+      setServerRemarks("Server verification failed. Please retry your submission.");
       setSyncedToSupabase(false);
-      setSubmitted(true);
+      setSubmitted(false);
     } finally {
       setSubmitting(false);
     }

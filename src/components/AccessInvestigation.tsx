@@ -38,7 +38,7 @@ export function AccessInvestigation({
   onComplete,
 }: {
   done: boolean;
-  authToken?: string;
+  authToken?: string | undefined;
   onComplete: () => void;
 }) {
   const [search, setSearch] = useState("");
@@ -154,11 +154,15 @@ export function AccessInvestigation({
 
   // Comprehensive multi-factor evaluation scoring
   const evaluation = useMemo(() => {
-    const submittedIds = evidenceIds
-      .toUpperCase()
-      .split(/[\s,;]+/)
-      .map((item) => item.trim())
-      .filter(Boolean);
+    const submittedIds = [
+      ...new Set(
+        evidenceIds
+          .toUpperCase()
+          .split(/[\s,;]+/)
+          .map((item) => item.trim())
+          .filter(Boolean),
+      ),
+    ];
 
     const keySupportedIds = [
       "IAM-POL-201",

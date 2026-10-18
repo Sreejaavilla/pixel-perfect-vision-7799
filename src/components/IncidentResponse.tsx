@@ -57,7 +57,7 @@ export function IncidentResponse({
   initialPhase = 1,
 }: {
   done: boolean;
-  authToken?: string;
+  authToken?: string | undefined;
   onComplete: () => void;
   initialPhase?: Phase | 5;
 }) {
@@ -1288,7 +1288,7 @@ export function IncidentResponse({
       {/* ========================================================= */}
       {/* COMPLETION SCREEN: SCORE BREAKDOWN & CASE RESOLUTION */}
       {/* ========================================================= */}
-      {(currentPhase === "completion" || currentPhase === 5) && (
+      {currentPhase === "completion" && (
         <div className="space-y-6">
           {submissionMessage && (
             <div

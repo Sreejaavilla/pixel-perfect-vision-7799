@@ -60,6 +60,7 @@ export async function executeStageSubmission(data: SubmitStageInput): Promise<Su
   let totalScore = result.score;
   let completedStages = result.passed ? [stageId] : [];
   let caseConcluded = false;
+  let submissionError: string | undefined;
 
   const admin = getSupabaseAdminClient();
   if (admin && authToken && isServerSupabaseReady()) {
@@ -69,65 +70,74 @@ export async function executeStageSubmission(data: SubmitStageInput): Promise<Su
         error: authError,
       } = await admin.auth.getUser(authToken);
 
-      if (!authError && user) {
-        await admin.from("stage_submissions").insert({
-          user_id: user.id,
-          stage_id: stageId,
-          payload: payload as Record<string, unknown>,
-          score: result.score,
-          breakdown: result.breakdown,
-          completion_status: result.passed,
-        });
+      if (authError || !user)
+        throw new Error("Your session could not be verified. Please sign in again.");
 
-        const { data: progress } = await admin
-          .from("user_progress")
-          .select("completed_stages, stage_scores, total_score, case_concluded")
-          .eq("user_id", user.id)
-          .maybeSingle();
+      const { data: progress, error: progressError } = await admin
+        .from("user_progress")
+        .select("completed_stages, stage_scores, total_score, case_concluded")
+        .eq("user_id", user.id)
+        .maybeSingle();
+      if (progressError) throw progressError;
 
-        const existingCompleted = (progress?.completed_stages as number[]) || [];
-        const existingScores = (progress?.stage_scores as Record<string, number>) || {};
-
-        const prevScore = existingScores[String(stageId)] || 0;
-        const updatedStageScore = Math.max(prevScore, result.score);
-        const updatedScores = { ...existingScores, [String(stageId)]: updatedStageScore };
-
-        const updatedCompleted = result.passed
-          ? Array.from(new Set([...existingCompleted, stageId])).sort((a, b) => a - b)
-          : existingCompleted;
-
-        const updatedTotal = Object.values(updatedScores).reduce((acc, s) => acc + s, 0);
-        const isCaseConcluded = updatedCompleted.length >= 5;
-
-        await admin
-          .from("user_progress")
-          .upsert({
-            user_id: user.id,
-            completed_stages: updatedCompleted,
-            current_stage: Math.min(5, Math.max(...updatedCompleted, 0) + 1),
-            stage_scores: updatedScores,
-            total_score: updatedTotal,
-            case_concluded: isCaseConcluded,
-            last_activity_at: new Date().toISOString(),
-          })
-          .eq("user_id", user.id);
-
-        persistedToSupabase = true;
-        totalScore = updatedTotal;
-        completedStages = updatedCompleted;
-        caseConcluded = isCaseConcluded;
+      const existingCompleted = (progress?.completed_stages as number[]) || [];
+      const highestCompleted = Math.max(0, ...existingCompleted);
+      if (stageId > highestCompleted + 1) {
+        throw new Error(`Complete stage ${highestCompleted + 1} before submitting this stage.`);
       }
+
+      const { error: insertError } = await admin.from("stage_submissions").insert({
+        user_id: user.id,
+        stage_id: stageId,
+        payload: payload as Record<string, unknown>,
+        score: result.score,
+        breakdown: result.breakdown,
+        completion_status: result.passed,
+      });
+      if (insertError) throw insertError;
+
+      const existingScores = (progress?.stage_scores as Record<string, number>) || {};
+      const prevScore = existingScores[String(stageId)] || 0;
+      const updatedStageScore = Math.max(prevScore, result.score);
+      const updatedScores = { ...existingScores, [String(stageId)]: updatedStageScore };
+
+      const updatedCompleted = result.passed
+        ? Array.from(new Set([...existingCompleted, stageId])).sort((a, b) => a - b)
+        : existingCompleted;
+
+      const updatedTotal = Object.values(updatedScores).reduce((acc, s) => acc + s, 0);
+      const isCaseConcluded = updatedCompleted.length >= 5;
+
+      const { error: saveProgressError } = await admin
+        .from("user_progress")
+        .upsert({
+          user_id: user.id,
+          completed_stages: updatedCompleted,
+          current_stage: Math.min(5, Math.max(...updatedCompleted, 0) + 1),
+          stage_scores: updatedScores,
+          total_score: updatedTotal,
+          case_concluded: isCaseConcluded,
+          last_activity_at: new Date().toISOString(),
+        })
+        .eq("user_id", user.id);
+      if (saveProgressError) throw saveProgressError;
+
+      persistedToSupabase = true;
+      totalScore = updatedTotal;
+      completedStages = updatedCompleted;
+      caseConcluded = isCaseConcluded;
     } catch (err) {
       console.error("Failed to persist submission to Supabase:", err);
+      submissionError = err instanceof Error ? err.message : "Failed to save submission.";
     }
   }
 
   return {
-    success: true,
+    success: !submissionError,
     stageId,
     score: result.score,
     passed: result.passed,
-    remarks: result.remarks,
+    remarks: submissionError || result.remarks,
     breakdown: result.breakdown,
     persistedToSupabase,
     totalScore,

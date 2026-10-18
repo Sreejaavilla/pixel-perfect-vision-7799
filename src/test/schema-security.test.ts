@@ -31,6 +31,22 @@ describe("Database Schema & Security RLS Integrity", () => {
     );
   });
 
+  it("checks admin access through a non-recursive, locked-down helper", () => {
+    expect(schemaSql).toContain("CREATE OR REPLACE FUNCTION public.is_admin()");
+    expect(schemaSql).toMatch(/SECURITY DEFINER\s+SET search_path = ''/);
+    expect(schemaSql).toContain("REVOKE ALL ON FUNCTION public.is_admin() FROM PUBLIC");
+    expect(schemaSql).toContain("GRANT EXECUTE ON FUNCTION public.is_admin() TO authenticated");
+
+    const profilesReadPolicy = schemaSql
+      .split('CREATE POLICY "Users can view own profile"')[1]
+      ?.split('DROP POLICY IF EXISTS "Users can update own username only"')[0];
+    expect(profilesReadPolicy).toContain("public.is_admin()");
+    expect(profilesReadPolicy).not.toContain("SELECT 1 FROM public.profiles");
+
+    expect(schemaSql).toContain("CREATE OR REPLACE FUNCTION public.current_profile_role()");
+    expect(schemaSql).toContain("role = public.current_profile_role()");
+  });
+
   it("strictly denies client-side writes to progress and submissions", () => {
     expect(schemaSql).toContain('CREATE POLICY "Deny direct client progress insertion"');
     expect(schemaSql).toContain('CREATE POLICY "Deny direct client progress update"');
@@ -63,9 +79,11 @@ describe("Database Schema & Security RLS Integrity", () => {
   it("supports modern Supabase sb_secret_ key and database execution context in role-protection trigger", () => {
     expect(schemaSql).toContain("FUNCTION public.prevent_role_tampering()");
     expect(schemaSql).toContain("is_privileged :=");
-    expect(schemaSql).toContain("current_user IN ('service_role', 'postgres', 'supabase_admin')");
     expect(schemaSql).toContain("session_user IN ('service_role', 'postgres', 'supabase_admin')");
     expect(schemaSql).toContain("auth.jwt()->>'role'");
+    expect(schemaSql).not.toContain(
+      "current_user IN ('service_role', 'postgres', 'supabase_admin')",
+    );
   });
 
   it("pins search_path on all SECURITY DEFINER functions to mitigate search-path injection", () => {

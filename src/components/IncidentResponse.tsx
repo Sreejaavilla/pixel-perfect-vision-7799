@@ -18,6 +18,7 @@ import {
   SAFE_RECOVERY_STEPS,
   calculateIncidentResponseScore,
 } from "../lib/stage5-response";
+import { submitStageServerFn } from "../api/submissions";
 
 type Phase = 1 | 2 | 3 | 4 | "completion";
 
@@ -51,10 +52,12 @@ interface Phase4State {
 
 export function IncidentResponse({
   done,
+  authToken,
   onComplete,
   initialPhase = 1,
 }: {
   done: boolean;
+  authToken?: string;
   onComplete: () => void;
   initialPhase?: Phase | 5;
 }) {
@@ -65,6 +68,8 @@ export function IncidentResponse({
   );
   const [showResetConfirm, setShowResetConfirm] = useState(false);
   const [isSubmitted, setIsSubmitted] = useState(done);
+  const [submissionMessage, setSubmissionMessage] = useState("");
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   // Phase 1 State
   const [phase1, setPhase1] = useState<Phase1State>({
@@ -177,6 +182,42 @@ export function IncidentResponse({
   const scoreBreakdown = useMemo(() => {
     return calculateIncidentResponseScore({ phase1, phase2, phase3, phase4 });
   }, [phase1, phase2, phase3, phase4]);
+
+  const submitResponse = async () => {
+    if (!isPhase4Valid || isSubmitting) return;
+    setIsSubmitting(true);
+    setSubmissionMessage("");
+    try {
+      const result = await submitStageServerFn({
+        data: {
+          stageId: 5,
+          authToken,
+          payload: { phase1, phase2, phase3, phase4 },
+        },
+      });
+      setSubmissionMessage(
+        !result.success
+          ? result.remarks
+          : result.persistedToSupabase
+            ? `Response verified and saved (${result.score}/100).`
+            : `Response verified (${result.score}/100). Sign in and configure Supabase to save progress.`,
+      );
+      if (result.success && result.passed) {
+        setIsSubmitted(true);
+        setHighestVisitedPhase(5);
+        setCurrentPhase("completion");
+        onComplete();
+      } else if (result.success) {
+        setSubmissionMessage(
+          `Response did not meet the server pass threshold (${result.score}/100). Revise and submit again.`,
+        );
+      }
+    } catch {
+      setSubmissionMessage("Server verification failed. Please retry your response.");
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
 
   const resetAll = () => {
     setPhase1({
@@ -1225,19 +1266,21 @@ export function IncidentResponse({
               </button>
 
               <button
-                onClick={() => {
-                  setIsSubmitted(true);
-                  setHighestVisitedPhase(5);
-                  setCurrentPhase("completion");
-                  onComplete();
-                }}
-                disabled={!isPhase4Valid}
+                onClick={() => void submitResponse()}
+                disabled={!isPhase4Valid || isSubmitting}
                 className="flex items-center gap-2 bg-emerald-500 px-6 py-2.5 font-mono text-xs font-bold uppercase tracking-wider text-black transition-colors hover:bg-emerald-400 disabled:opacity-40"
               >
                 <Send className="h-4 w-4" />
-                COMPLETE INVESTIGATION & SUBMIT RESPONSE
+                {isSubmitting
+                  ? "VERIFYING RESPONSE..."
+                  : "COMPLETE INVESTIGATION & SUBMIT RESPONSE"}
               </button>
             </div>
+            {submissionMessage && (
+              <div className="mt-3 font-mono text-xs text-muted-foreground" role="status">
+                {submissionMessage}
+              </div>
+            )}
           </div>
         </div>
       )}
@@ -1247,6 +1290,14 @@ export function IncidentResponse({
       {/* ========================================================= */}
       {(currentPhase === "completion" || currentPhase === 5) && (
         <div className="space-y-6">
+          {submissionMessage && (
+            <div
+              className="border border-emerald-500/30 bg-emerald-500/5 p-3 font-mono text-xs text-muted-foreground"
+              role="status"
+            >
+              {submissionMessage}
+            </div>
+          )}
           {/* Completion Victory / Conclusion Banner */}
           <div className="relative overflow-hidden border border-emerald-500/40 bg-card p-6 md:p-8">
             <div className="pointer-events-none absolute right-0 top-0 p-4 opacity-10">

@@ -32,6 +32,7 @@ import {
   VERDICT_LIMITATIONS,
   VERDICT_NEXT_STEPS,
 } from "../lib/stage3-evidence";
+import { submitStageServerFn } from "../api/submissions";
 
 type Icon = ComponentType<{ className?: string }>;
 
@@ -52,7 +53,15 @@ type ClaimAssessment = {
   justification: string;
 };
 
-export function EvidenceLab({ done, onComplete }: { done: boolean; onComplete: () => void }) {
+export function EvidenceLab({
+  done,
+  authToken,
+  onComplete,
+}: {
+  done: boolean;
+  authToken?: string;
+  onComplete: () => void;
+}) {
   // Navigation & phase state
   const [activePhase, setActivePhase] = useState<AnalysisPhase>("intake");
 
@@ -88,6 +97,7 @@ export function EvidenceLab({ done, onComplete }: { done: boolean; onComplete: (
   const [alternativeTheory, setAlternativeTheory] = useState<string>("");
   const [selectedNextStepId, setSelectedNextStepId] = useState<string>("");
   const [submitted, setSubmitted] = useState<boolean>(false);
+  const [submissionMessage, setSubmissionMessage] = useState("");
 
   // Active selected artifact in Phase A
   const selectedArtifact =
@@ -263,6 +273,48 @@ export function EvidenceLab({ done, onComplete }: { done: boolean; onComplete: (
     setComparisonsLedger((prev) => [newRecord, ...prev]);
     setComparisonNotes("");
     setComparisonVerdict("");
+  };
+
+  const submitFindings = async () => {
+    if (!isPhaseDComplete) return;
+    setSubmitted(false);
+    setSubmissionMessage("");
+    try {
+      const result = await submitStageServerFn({
+        data: {
+          stageId: 3,
+          authToken,
+          payload: {
+            classifications,
+            comparisonsLedger: comparisonsLedger.map((comparison) => ({
+              artifactA: comparison.slotAId,
+              artifactB: comparison.slotBId,
+              relation:
+                comparison.verdict === "different" ? "altered_metadata" : comparison.verdict,
+            })),
+            claimAssessments: Object.fromEntries(
+              Object.entries(claimAssessments)
+                .filter(([, assessment]) => assessment.status !== "")
+                .map(([id, assessment]) => [id, assessment]),
+            ),
+            selectedFindingId,
+            selectedLimitationId,
+            selectedNextStepId,
+            alternativeTheory,
+          },
+        },
+      });
+      setSubmissionMessage(
+        !result.success
+          ? result.remarks
+          : result.persistedToSupabase
+            ? `Verified and saved (${result.score}/100).`
+            : `Verified (${result.score}/100). Sign in and configure Supabase to save progress.`,
+      );
+      setSubmitted(result.success && result.passed);
+    } catch {
+      setSubmissionMessage("Server verification failed. Please retry your submission.");
+    }
   };
 
   const loadPresetPair = (idA: string, idB: string) => {
@@ -1475,10 +1527,7 @@ export function EvidenceLab({ done, onComplete }: { done: boolean; onComplete: (
             {/* Action Bar */}
             <div className="mt-5 flex flex-wrap gap-3 border-t border-zinc-800 pt-4">
               <button
-                onClick={() => {
-                  setSubmitted(false);
-                  if (isPhaseDComplete) setSubmitted(true);
-                }}
+                onClick={() => void submitFindings()}
                 disabled={!isPhaseDComplete}
                 className="flex items-center gap-2 bg-cyan-500 px-5 py-2.5 font-mono text-xs font-bold uppercase tracking-wider text-black transition-colors hover:bg-cyan-400 disabled:opacity-40"
               >
@@ -1501,6 +1550,11 @@ export function EvidenceLab({ done, onComplete }: { done: boolean; onComplete: (
                 </span>
               )}
             </div>
+            {submissionMessage && (
+              <div className="mt-3 font-mono text-xs text-muted-foreground" role="status">
+                {submissionMessage}
+              </div>
+            )}
           </div>
 
           {/* Navigation Controls */}

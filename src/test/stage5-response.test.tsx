@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { render, screen, fireEvent } from "@testing-library/react";
+import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import {
   CONTAINMENT_ACTIONS,
   PRESERVATION_SOURCES,
@@ -11,6 +11,18 @@ import {
   type IncidentResponseState,
 } from "../lib/stage5-response";
 import { IncidentResponse } from "../components/IncidentResponse";
+
+vi.mock("../api/submissions", () => ({
+  submitStageServerFn: vi.fn().mockResolvedValue({
+    success: true,
+    stageId: 5,
+    score: 80,
+    passed: true,
+    remarks: "Response verified.",
+    breakdown: {},
+    persistedToSupabase: false,
+  }),
+}));
 
 describe("Stage 5 — Incident Response Data & Technical Bounds", () => {
   it("provides at least 8 containment actions covering appropriate, disproportionate, and destructive categories", () => {
@@ -309,7 +321,7 @@ describe("Stage 5 — IncidentResponse UI & Interaction", () => {
     expect(proceedButton).not.toBeDisabled();
   });
 
-  it("navigates through phases and retains user responses across transitions", () => {
+  it("navigates through phases and retains user responses across transitions", async () => {
     const onComplete = vi.fn();
     render(<IncidentResponse done={false} onComplete={onComplete} />);
 
@@ -363,7 +375,7 @@ describe("Stage 5 — IncidentResponse UI & Interaction", () => {
       screen.getByRole("button", { name: /COMPLETE INVESTIGATION & SUBMIT RESPONSE/i }),
     );
 
-    expect(onComplete).toHaveBeenCalledTimes(1);
+    await waitFor(() => expect(onComplete).toHaveBeenCalledTimes(1));
 
     // --- Completion Screen ---
     expect(screen.getByText(/INCIDENT RESPONSE SCORE BREAKDOWN/i)).toBeInTheDocument();

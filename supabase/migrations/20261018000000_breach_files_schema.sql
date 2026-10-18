@@ -33,6 +33,34 @@ CREATE TABLE IF NOT EXISTS public.profiles (
 
 ALTER TABLE public.profiles ENABLE ROW LEVEL SECURITY;
 
+-- SECURITY DEFINER avoids recursively applying profiles RLS while checking admin access.
+CREATE OR REPLACE FUNCTION public.is_admin()
+RETURNS BOOLEAN
+LANGUAGE SQL
+STABLE
+SECURITY DEFINER
+SET search_path = ''
+AS $$
+  SELECT EXISTS (
+    SELECT 1 FROM public.profiles p
+    WHERE p.id = (SELECT auth.uid()) AND p.role = 'admin'
+  );
+$$;
+REVOKE ALL ON FUNCTION public.is_admin() FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.is_admin() TO authenticated;
+
+CREATE OR REPLACE FUNCTION public.current_profile_role()
+RETURNS TEXT
+LANGUAGE SQL
+STABLE
+SECURITY DEFINER
+SET search_path = ''
+AS $$
+  SELECT p.role FROM public.profiles p WHERE p.id = (SELECT auth.uid());
+$$;
+REVOKE ALL ON FUNCTION public.current_profile_role() FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.current_profile_role() TO authenticated;
+
 -- Profiles RLS:
 -- Participants may only view their OWN profile. Admins may view any profile.
 -- Public/anonymous access to the profiles table is strictly denied.
@@ -43,10 +71,7 @@ CREATE POLICY "Users can view own profile"
   TO authenticated
   USING (
     auth.uid() = id
-    OR EXISTS (
-      SELECT 1 FROM public.profiles
-      WHERE profiles.id = auth.uid() AND profiles.role = 'admin'
-    )
+    OR public.is_admin()
   );
 
 -- Users can only update their own username. Role modifications are strictly rejected.
@@ -57,7 +82,7 @@ CREATE POLICY "Users can update own username only"
   USING (auth.uid() = id)
   WITH CHECK (
     auth.uid() = id
-    AND role = (SELECT p.role FROM public.profiles p WHERE p.id = auth.uid())
+    AND role = public.current_profile_role()
   );
 
 -- Direct client inserts into profiles are disallowed; handled exclusively via auth trigger or secret role.
@@ -95,10 +120,7 @@ CREATE POLICY "Users can view own progress"
   TO authenticated
   USING (
     auth.uid() = user_id
-    OR EXISTS (
-      SELECT 1 FROM public.profiles
-      WHERE profiles.id = auth.uid() AND profiles.role = 'admin'
-    )
+    OR public.is_admin()
   );
 
 -- Direct client modifications to scores or stage completion are strictly DENIED.
@@ -144,10 +166,7 @@ CREATE POLICY "Users can view own submissions"
   TO authenticated
   USING (
     auth.uid() = user_id
-    OR EXISTS (
-      SELECT 1 FROM public.profiles
-      WHERE profiles.id = auth.uid() AND profiles.role = 'admin'
-    )
+    OR public.is_admin()
   );
 
 -- Direct client inserts/updates/deletions are completely DENIED.
@@ -249,8 +268,7 @@ BEGIN
   -- 3. Legacy JWT claim role is service_role
   -- 4. Modern auth.jwt() claim role is service_role
   is_privileged := (
-    current_user IN ('service_role', 'postgres', 'supabase_admin')
-    OR session_user IN ('service_role', 'postgres', 'supabase_admin')
+    session_user IN ('service_role', 'postgres', 'supabase_admin')
     OR COALESCE(current_setting('request.jwt.claim.role', true), '') = 'service_role'
     OR COALESCE(auth.jwt()->>'role', '') = 'service_role'
   );

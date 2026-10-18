@@ -32,6 +32,7 @@ import {
   CONFERENCE_EXPLAINED_CONTRADICTIONS,
   CONFERENCE_NEXT_INQUIRIES,
 } from "../lib/stage4-witnesses";
+import { submitStageServerFn } from "../api/submissions";
 
 type WitnessTab = "transcripts" | "casewall" | "credibility" | "conference";
 
@@ -76,9 +77,11 @@ const COMMON_EVIDENCE_CHIPS = [
 
 export function WitnessInvestigation({
   done,
+  authToken,
   onComplete,
 }: {
   done: boolean;
+  authToken?: string;
   onComplete: () => void;
 }) {
   // Navigation
@@ -120,6 +123,7 @@ export function WitnessInvestigation({
   const [followupRationale, setFollowupRationale] = useState<string>("");
   const [selectedInquiry, setSelectedInquiry] = useState<string>("");
   const [submitted, setSubmitted] = useState<boolean>(false);
+  const [submissionMessage, setSubmissionMessage] = useState("");
 
   // Active witness
   const selectedWitness =
@@ -169,6 +173,37 @@ export function WitnessInvestigation({
     followupStatementId !== "" &&
     followupRationale.trim().length >= 25 &&
     selectedInquiry !== "";
+
+  const submitConference = async () => {
+    if (!isConferenceReady) return;
+    setSubmitted(false);
+    setSubmissionMessage("");
+    try {
+      const result = await submitStageServerFn({
+        data: {
+          stageId: 4,
+          authToken,
+          payload: {
+            claimEvaluations,
+            accountPreference: selectedAccount,
+            conferenceUnresolvedId: selectedUnresolved,
+            conferenceExplainedId: selectedExplained,
+            conferenceNextInquiryId: selectedInquiry,
+          },
+        },
+      });
+      setSubmissionMessage(
+        !result.success
+          ? result.remarks
+          : result.persistedToSupabase
+            ? `Verified and saved (${result.score}/100).`
+            : `Verified (${result.score}/100). Sign in and configure Supabase to save progress.`,
+      );
+      setSubmitted(result.success && result.passed);
+    } catch {
+      setSubmissionMessage("Server verification failed. Please retry your submission.");
+    }
+  };
 
   // Scoring engine (100 points total)
   const evaluation = useMemo(() => {
@@ -1177,7 +1212,7 @@ export function WitnessInvestigation({
               <button
                 onClick={() => {
                   setSubmitted(false);
-                  if (isConferenceReady) setSubmitted(true);
+                  void submitConference();
                 }}
                 disabled={!isConferenceReady}
                 className="flex items-center gap-2 bg-violet-600 px-5 py-2.5 font-mono text-xs font-bold uppercase tracking-wider text-white transition-colors hover:bg-violet-500 disabled:opacity-40"
@@ -1201,6 +1236,11 @@ export function WitnessInvestigation({
                 </span>
               )}
             </div>
+            {submissionMessage && (
+              <div className="mt-3 font-mono text-xs text-muted-foreground" role="status">
+                {submissionMessage}
+              </div>
+            )}
           </div>
 
           {/* Navigation Controls */}

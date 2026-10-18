@@ -310,7 +310,7 @@ function Dashboard() {
     const supabase = getSupabaseClient();
     if (!supabase) return;
 
-    const initAuth = async () => {
+    const refreshSession = async () => {
       try {
         const {
           data: { session },
@@ -345,23 +345,19 @@ function Dashboard() {
       }
     };
 
-    initAuth();
+    void refreshSession();
 
     const { data: authSubscription } = supabase.auth.onAuthStateChange((event, session) => {
       if (session?.user) {
-        setAuthToken(session.access_token);
-        setUser({
-          id: session.user.id,
-          email: session.user.email,
-          username: session.user.user_metadata?.username,
-          role: "participant",
-        });
+        // Supabase advises deferring auth calls until after the auth callback returns.
+        setTimeout(() => void refreshSession(), 0);
         if (event === "PASSWORD_RECOVERY") {
           setShowAuthModal(true);
         }
       } else {
         setUser(null);
         setAuthToken(undefined);
+        setCompleted(0);
       }
     });
 
@@ -512,19 +508,53 @@ function Dashboard() {
           onAuthChange={() => {
             const supabase = getSupabaseClient();
             if (!supabase) return;
-            supabase.auth.getSession().then(({ data: { session } }) => {
-              if (session?.user) {
-                setAuthToken(session.access_token);
-                setUser({
-                  id: session.user.id,
-                  email: session.user.email,
-                  username: session.user.user_metadata?.username,
-                  role: "participant",
-                });
-              } else {
+            void supabase.auth.getSession().then(({ data: { session } }) => {
+              if (!session) {
                 setUser(null);
                 setAuthToken(undefined);
+                setCompleted(0);
+                return;
               }
+              setAuthToken(session.access_token);
+              setUser({
+                id: session.user.id,
+                email: session.user.email,
+                username: session.user.user_metadata?.username,
+                role: "participant",
+              });
+              return supabase
+                .from("profiles")
+                .select("username, role")
+                .eq("id", session.user.id)
+                .maybeSingle()
+                .then(({ data: profile }) => {
+                  setUser((current) =>
+                    current?.id === session.user.id
+                      ? {
+                          ...current,
+                          username: profile?.username || session.user.user_metadata?.username,
+                          role: profile?.role || "participant",
+                        }
+                      : current,
+                  );
+                })
+                .then(() =>
+                  supabase
+                    .from("user_progress")
+                    .select("completed_stages")
+                    .eq("user_id", session.user.id)
+                    .maybeSingle(),
+                )
+                .then(({ data: progressData }) => {
+                  if (
+                    progressData?.completed_stages &&
+                    Array.isArray(progressData.completed_stages)
+                  ) {
+                    setCompleted(Math.max(0, ...progressData.completed_stages));
+                  } else {
+                    setCompleted(0);
+                  }
+                });
             });
           }}
           onClose={() => setShowAuthModal(false)}
@@ -686,13 +716,13 @@ function StageView({
       {stage.id === 1 ? (
         <NetworkInvestigation done={done} authToken={authToken} onComplete={onComplete} />
       ) : stage.id === 2 ? (
-        <AccessInvestigation done={done} onComplete={onComplete} />
+        <AccessInvestigation done={done} authToken={authToken} onComplete={onComplete} />
       ) : stage.id === 3 ? (
-        <EvidenceLab done={done} onComplete={onComplete} />
+        <EvidenceLab done={done} authToken={authToken} onComplete={onComplete} />
       ) : stage.id === 4 ? (
-        <WitnessInvestigation done={done} onComplete={onComplete} />
+        <WitnessInvestigation done={done} authToken={authToken} onComplete={onComplete} />
       ) : stage.id === 5 ? (
-        <IncidentResponse done={done} onComplete={onComplete} />
+        <IncidentResponse done={done} authToken={authToken} onComplete={onComplete} />
       ) : (
         <Panel
           title={`Stage ${String(stage.id).padStart(2, "0")} - ${stage.title}`}
@@ -732,6 +762,7 @@ function NetworkInvestigation({
   const [submitting, setSubmitting] = useState(false);
   const [serverScore, setServerScore] = useState<number | null>(null);
   const [serverPassed, setServerPassed] = useState(false);
+  const [serverRejected, setServerRejected] = useState(false);
   const [serverRemarks, setServerRemarks] = useState("");
   const [syncedToSupabase, setSyncedToSupabase] = useState(false);
 
@@ -793,6 +824,7 @@ function NetworkInvestigation({
     setSubmitted(false);
     setServerScore(null);
     setServerPassed(false);
+    setServerRejected(false);
     setServerRemarks("");
   };
 
@@ -808,7 +840,8 @@ function NetworkInvestigation({
         },
       });
       setServerScore(res.score);
-      setServerPassed(res.passed);
+      setServerPassed(res.success && res.passed);
+      setServerRejected(!res.success);
       setServerRemarks(res.remarks);
       setSyncedToSupabase(res.persistedToSupabase);
       setSubmitted(true);
@@ -816,6 +849,7 @@ function NetworkInvestigation({
       const localScore = reportScore();
       setServerScore(localScore);
       setServerPassed(localScore >= 50);
+      setServerRejected(false);
       setServerRemarks("Preliminary local automated check completed.");
       setSyncedToSupabase(false);
       setSubmitted(true);
@@ -1252,7 +1286,7 @@ function NetworkInvestigation({
         </div>
       </Panel>
 
-      {!done && submitted && (serverPassed || (serverScore ?? score) >= 50) && (
+      {!done && submitted && !serverRejected && (serverPassed || (serverScore ?? score) >= 50) && (
         <div className="flex justify-end">
           <button
             onClick={onComplete}

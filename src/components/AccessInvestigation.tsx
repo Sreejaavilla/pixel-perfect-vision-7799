@@ -20,6 +20,7 @@ import {
   ACCESS_CATEGORIES,
   ACCESS_EVIDENCE,
 } from "../lib/stage2-evidence";
+import { submitStageServerFn } from "../api/submissions";
 
 type Icon = ComponentType<{ className?: string }>;
 
@@ -33,9 +34,11 @@ const CATEGORY_COLORS: Record<AccessCategory, string> = {
 
 export function AccessInvestigation({
   done,
+  authToken,
   onComplete,
 }: {
   done: boolean;
+  authToken?: string;
   onComplete: () => void;
 }) {
   const [search, setSearch] = useState("");
@@ -53,6 +56,7 @@ export function AccessInvestigation({
   const [nextEvidence, setNextEvidence] = useState("");
   const [reasoning, setReasoning] = useState("");
   const [submitted, setSubmitted] = useState(false);
+  const [submissionMessage, setSubmissionMessage] = useState("");
 
   const selectedRecord =
     ACCESS_EVIDENCE.find((record) => record.id === selectedId) ?? ACCESS_EVIDENCE[0]!;
@@ -113,6 +117,39 @@ export function AccessInvestigation({
     setNextEvidence("");
     setReasoning("");
     setSubmitted(false);
+    setSubmissionMessage("");
+  };
+
+  const submitReport = async () => {
+    if (!reportComplete) return;
+    setSubmitted(false);
+    setSubmissionMessage("");
+    try {
+      const result = await submitStageServerFn({
+        data: {
+          stageId: 2,
+          authToken,
+          payload: {
+            finding,
+            evidenceIds,
+            timelineIds,
+            establishedVsUnknown,
+            alternative,
+            nextEvidence,
+          },
+        },
+      });
+      setSubmissionMessage(
+        !result.success
+          ? result.remarks
+          : result.persistedToSupabase
+            ? `Verified and saved (${result.score}/100).`
+            : `Verified (${result.score}/100). Sign in and configure Supabase to save progress.`,
+      );
+      setSubmitted(result.success && result.passed);
+    } catch {
+      setSubmissionMessage("Server verification failed. Please retry your submission.");
+    }
   };
 
   // Comprehensive multi-factor evaluation scoring
@@ -727,10 +764,7 @@ export function AccessInvestigation({
         {/* Action Buttons */}
         <div className="mt-5 flex flex-wrap gap-3">
           <button
-            onClick={() => {
-              setSubmitted(false);
-              if (reportComplete) setSubmitted(true);
-            }}
+            onClick={() => void submitReport()}
             disabled={!reportComplete}
             className="flex items-center gap-2 bg-primary px-4 py-2.5 font-mono text-xs font-bold tracking-wider text-primary-foreground transition-colors disabled:cursor-not-allowed disabled:opacity-40"
           >
@@ -754,9 +788,14 @@ export function AccessInvestigation({
 
         <div className="mt-4 flex items-start gap-2 text-[10px] leading-relaxed text-muted-foreground">
           <AlertTriangle className="mt-0.5 h-3 w-3 shrink-0" />
-          This prototype stores progress in the current page state only. Reports are not yet sent to
-          a server and will be lost on refresh.
+          Submitted reports are checked by the server. Sign in with Supabase configured to save
+          stage progress to your account.
         </div>
+        {submissionMessage && (
+          <div className="mt-3 font-mono text-xs text-muted-foreground" role="status">
+            {submissionMessage}
+          </div>
+        )}
       </AccessPanel>
 
       {/* Stage Completion Advancement Button */}

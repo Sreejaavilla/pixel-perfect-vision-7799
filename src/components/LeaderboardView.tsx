@@ -3,9 +3,7 @@ import { getLeaderboardServerFn } from "../api/submissions";
 import { Trophy, Shield, RefreshCw, AlertCircle, CheckCircle2 } from "lucide-react";
 
 type LeaderboardEntry = {
-  user_id: string;
   username: string;
-  role: string;
   total_score: number;
   stages_completed: number;
   case_concluded: boolean;
@@ -107,7 +105,7 @@ export function LeaderboardView() {
           <tbody className="divide-y divide-border">
             {entries.length > 0 ? (
               entries.map((entry, idx) => (
-                <tr key={entry.user_id} className="hover:bg-muted/20">
+                <tr key={entry.username} className="hover:bg-muted/20">
                   <td className="p-3 font-bold text-primary">#{idx + 1}</td>
                   <td className="p-3">
                     <div className="flex items-center gap-2 font-semibold text-foreground">

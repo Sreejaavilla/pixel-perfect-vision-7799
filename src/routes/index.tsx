@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useEffect, useMemo, useState, type ComponentType } from "react";
+import { lazy, Suspense, useEffect, useMemo, useState, type ComponentType } from "react";
 import { AccessInvestigation } from "../components/AccessInvestigation";
 import { EvidenceLab } from "../components/EvidenceLab";
 import { WitnessInvestigation } from "../components/WitnessInvestigation";
@@ -34,7 +34,12 @@ import {
   ClipboardList,
   Trophy,
   User as UserIcon,
+  ShieldCheck,
 } from "lucide-react";
+
+const AdminPortal = lazy(() =>
+  import("../components/AdminPortal").then((module) => ({ default: module.AdminPortal })),
+);
 
 export const Route = createFileRoute("/")({
   head: () => ({
@@ -359,6 +364,7 @@ function Dashboard() {
         setUser(null);
         setAuthToken(undefined);
         setCompleted(0);
+        setView("overview");
       }
     });
 
@@ -392,6 +398,9 @@ function Dashboard() {
       locked: !unlocked(stage.id),
     })),
     { key: "leaderboard", label: "Leaderboard", icon: Trophy, locked: false },
+    ...(user?.role === "admin"
+      ? [{ key: "admin", label: "Admin Responses", icon: ShieldCheck, locked: false }]
+      : []),
   ];
 
   const activeStage = STAGES.find((stage) => stage.key === view);
@@ -467,6 +476,16 @@ function Dashboard() {
               </button>
               <LeaderboardView />
             </div>
+          ) : view === "admin" && user?.role === "admin" ? (
+            <Suspense
+              fallback={
+                <div className="p-8 text-center font-mono text-xs text-muted-foreground">
+                  Opening administrator response review…
+                </div>
+              }
+            >
+              <AdminPortal authToken={authToken} />
+            </Suspense>
           ) : activeStage ? (
             <StageView
               stage={activeStage}
@@ -514,6 +533,7 @@ function Dashboard() {
                 setUser(null);
                 setAuthToken(undefined);
                 setCompleted(0);
+                setView("overview");
                 return;
               }
               setAuthToken(session.access_token);

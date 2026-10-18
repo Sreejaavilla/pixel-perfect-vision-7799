@@ -164,6 +164,7 @@ CREATE TABLE IF NOT EXISTS public.stage_submissions (
 );
 
 CREATE INDEX IF NOT EXISTS idx_submissions_user_stage ON public.stage_submissions(user_id, stage_id);
+CREATE INDEX IF NOT EXISTS idx_submissions_submitted_at ON public.stage_submissions(submitted_at DESC);
 
 ALTER TABLE public.stage_submissions ENABLE ROW LEVEL SECURITY;
 

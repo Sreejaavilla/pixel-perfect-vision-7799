@@ -31,7 +31,7 @@ export function AuthModal({ user, onAuthChange, onClose, initialMode = "signin" 
 
     if (!isSupabaseConfigured || !supabase) {
       setError(
-        "Supabase credentials are not configured yet. Add VITE_SUPABASE_ANON_KEY to your .env to enable cloud accounts.",
+        "Supabase credentials are not configured yet. Add VITE_SUPABASE_PUBLISHABLE_KEY (or VITE_SUPABASE_ANON_KEY) to your .env to enable cloud accounts.",
       );
       return;
     }

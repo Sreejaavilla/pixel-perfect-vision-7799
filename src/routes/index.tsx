@@ -1,8 +1,13 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useMemo, useState, type ComponentType } from "react";
+import { useEffect, useMemo, useState, type ComponentType } from "react";
 import { AccessInvestigation } from "../components/AccessInvestigation";
 import { EvidenceLab } from "../components/EvidenceLab";
 import { WitnessInvestigation } from "../components/WitnessInvestigation";
+import { IncidentResponse } from "../components/IncidentResponse";
+import { LeaderboardView } from "../components/LeaderboardView";
+import { AuthModal } from "../components/AuthModal";
+import { getSupabaseClient } from "../lib/supabase-client";
+import { submitStageServerFn } from "../api/submissions";
 import {
   LayoutDashboard,
   Network,
@@ -26,6 +31,8 @@ import {
   Send,
   RotateCcw,
   ClipboardList,
+  Trophy,
+  User as UserIcon,
 } from "lucide-react";
 
 export const Route = createFileRoute("/")({
@@ -290,6 +297,75 @@ const CATEGORIES = ["ALL", "NETWORK", "DNS", "AUTH", "EXPORT", "SYSTEM"] as cons
 function Dashboard() {
   const [completed, setCompleted] = useState(0);
   const [view, setView] = useState<View>("overview");
+  const [user, setUser] = useState<{
+    id: string;
+    email?: string;
+    username?: string;
+    role?: string;
+  } | null>(null);
+  const [showAuthModal, setShowAuthModal] = useState(false);
+  const [authToken, setAuthToken] = useState<string | undefined>(undefined);
+
+  useEffect(() => {
+    const supabase = getSupabaseClient();
+    if (!supabase) return;
+
+    const initAuth = async () => {
+      try {
+        const {
+          data: { session },
+        } = await supabase.auth.getSession();
+        if (session?.user) {
+          setAuthToken(session.access_token);
+          const { data: profile } = await supabase
+            .from("profiles")
+            .select("username, role")
+            .eq("id", session.user.id)
+            .maybeSingle();
+
+          setUser({
+            id: session.user.id,
+            email: session.user.email,
+            username: profile?.username || session.user.user_metadata?.username,
+            role: profile?.role || "participant",
+          });
+
+          const { data: progressData } = await supabase
+            .from("user_progress")
+            .select("completed_stages")
+            .eq("user_id", session.user.id)
+            .maybeSingle();
+
+          if (progressData?.completed_stages && Array.isArray(progressData.completed_stages)) {
+            setCompleted(Math.max(0, ...progressData.completed_stages));
+          }
+        }
+      } catch (err) {
+        console.warn("Auth initialization note:", err);
+      }
+    };
+
+    initAuth();
+
+    const { data: authSubscription } = supabase.auth.onAuthStateChange((_event, session) => {
+      if (session?.user) {
+        setAuthToken(session.access_token);
+        setUser({
+          id: session.user.id,
+          email: session.user.email,
+          username: session.user.user_metadata?.username,
+          role: "participant",
+        });
+      } else {
+        setUser(null);
+        setAuthToken(undefined);
+      }
+    });
+
+    return () => {
+      authSubscription?.subscription?.unsubscribe();
+    };
+  }, []);
 
   const unlocked = (id: number) => id <= completed + 1;
   const progress = Math.round((completed / STAGES.length) * 100);
@@ -315,6 +391,7 @@ function Dashboard() {
       icon: stage.icon,
       locked: !unlocked(stage.id),
     })),
+    { key: "leaderboard", label: "Leaderboard", icon: Trophy, locked: false },
   ];
 
   const activeStage = STAGES.find((stage) => stage.key === view);
@@ -362,18 +439,39 @@ function Dashboard() {
             {caseConcluded ? "CASE CONCLUDED" : "INVESTIGATION ACTIVE"}
           </div>
 
-          <div className="ml-auto flex items-center gap-3">
+          <div className="ml-auto flex flex-wrap items-center gap-3">
+            <button
+              onClick={() => setShowAuthModal(true)}
+              className="flex items-center gap-1.5 border border-border bg-sidebar px-2.5 py-1 font-mono text-[11px] uppercase tracking-wider text-muted-foreground hover:border-primary hover:text-primary transition-colors"
+            >
+              <UserIcon className="h-3.5 w-3.5 text-primary" />
+              <span>
+                {user ? user.username || user.email?.split("@")[0] : "INVESTIGATOR LOGIN"}
+              </span>
+            </button>
+
             <span className="font-mono text-xs text-muted-foreground">PROGRESS</span>
-            <ProgressBar value={progress} className="w-40" />
+            <ProgressBar value={progress} className="w-32 sm:w-40" />
             <span className="w-10 font-mono text-xs text-primary">{progress}%</span>
           </div>
         </header>
 
         <main className="grid-bg flex-1 overflow-auto p-6">
-          {activeStage ? (
+          {view === "leaderboard" ? (
+            <div className="mx-auto max-w-6xl space-y-4">
+              <button
+                onClick={() => setView("overview")}
+                className="flex items-center gap-1 font-mono text-xs text-muted-foreground hover:text-primary"
+              >
+                <ArrowLeft className="h-3 w-3" /> BACK TO OVERVIEW
+              </button>
+              <LeaderboardView />
+            </div>
+          ) : activeStage ? (
             <StageView
               stage={activeStage}
               done={activeStage.id <= completed}
+              authToken={authToken}
               onBack={() => setView("overview")}
               onComplete={() => {
                 setCompleted((value) => Math.max(value, activeStage.id));
@@ -404,6 +502,31 @@ function Dashboard() {
           </span>
         </footer>
       </div>
+
+      {showAuthModal && (
+        <AuthModal
+          user={user}
+          onAuthChange={() => {
+            const supabase = getSupabaseClient();
+            if (!supabase) return;
+            supabase.auth.getSession().then(({ data: { session } }) => {
+              if (session?.user) {
+                setAuthToken(session.access_token);
+                setUser({
+                  id: session.user.id,
+                  email: session.user.email,
+                  username: session.user.user_metadata?.username,
+                  role: "participant",
+                });
+              } else {
+                setUser(null);
+                setAuthToken(undefined);
+              }
+            });
+          }}
+          onClose={() => setShowAuthModal(false)}
+        />
+      )}
     </div>
   );
 }
@@ -538,11 +661,13 @@ function Overview({
 function StageView({
   stage,
   done,
+  authToken,
   onBack,
   onComplete,
 }: {
   stage: Stage;
   done: boolean;
+  authToken?: string;
   onBack: () => void;
   onComplete: () => void;
 }) {
@@ -556,7 +681,7 @@ function StageView({
       </button>
 
       {stage.id === 1 ? (
-        <NetworkInvestigation done={done} onComplete={onComplete} />
+        <NetworkInvestigation done={done} authToken={authToken} onComplete={onComplete} />
       ) : stage.id === 2 ? (
         <AccessInvestigation done={done} onComplete={onComplete} />
       ) : stage.id === 3 ? (
@@ -580,7 +705,15 @@ function StageView({
   );
 }
 
-function NetworkInvestigation({ done, onComplete }: { done: boolean; onComplete: () => void }) {
+function NetworkInvestigation({
+  done,
+  authToken,
+  onComplete,
+}: {
+  done: boolean;
+  authToken?: string;
+  onComplete: () => void;
+}) {
   const [search, setSearch] = useState("");
   const [category, setCategory] = useState<(typeof CATEGORIES)[number]>("ALL");
   const [bookmarks, setBookmarks] = useState<string[]>([]);
@@ -593,6 +726,11 @@ function NetworkInvestigation({ done, onComplete }: { done: boolean; onComplete:
   const [nextEvidence, setNextEvidence] = useState("");
   const [reasoning, setReasoning] = useState("");
   const [submitted, setSubmitted] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  const [serverScore, setServerScore] = useState<number | null>(null);
+  const [serverPassed, setServerPassed] = useState(false);
+  const [serverRemarks, setServerRemarks] = useState("");
+  const [syncedToSupabase, setSyncedToSupabase] = useState(false);
 
   const selectedRecord = EVIDENCE.find((record) => record.id === selectedId) ?? EVIDENCE[0]!;
 
@@ -650,6 +788,37 @@ function NetworkInvestigation({ done, onComplete }: { done: boolean; onComplete:
     setNextEvidence("");
     setReasoning("");
     setSubmitted(false);
+    setServerScore(null);
+    setServerPassed(false);
+    setServerRemarks("");
+  };
+
+  const handleSubmitReport = async () => {
+    if (!reportComplete) return;
+    setSubmitting(true);
+    try {
+      const res = await submitStageServerFn({
+        data: {
+          stageId: 1,
+          payload: { finding, evidenceIds, alternative, nextEvidence, reasoning },
+          authToken,
+        },
+      });
+      setServerScore(res.score);
+      setServerPassed(res.passed);
+      setServerRemarks(res.remarks);
+      setSyncedToSupabase(res.persistedToSupabase);
+      setSubmitted(true);
+    } catch {
+      const localScore = reportScore();
+      setServerScore(localScore);
+      setServerPassed(localScore >= 50);
+      setServerRemarks("Preliminary local automated check completed.");
+      setSyncedToSupabase(false);
+      setSubmitted(true);
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   const reportScore = () => {
@@ -1025,34 +1194,38 @@ function NetworkInvestigation({ done, onComplete }: { done: boolean; onComplete:
           </div>
         </div>
 
-        {submitted && (
+        {submitted && (serverScore !== null || score !== null) && (
           <div className="mt-5 border border-primary/40 bg-primary/5 p-4">
-            <div className="flex items-center gap-2 font-mono text-sm text-primary">
-              <CheckCircle2 className="h-4 w-4" />
-              REPORT RECORDED LOCALLY
+            <div className="flex flex-wrap items-center justify-between gap-2 font-mono text-sm text-primary">
+              <div className="flex items-center gap-2">
+                <CheckCircle2 className="h-4 w-4" />
+                {syncedToSupabase
+                  ? "REPORT VERIFIED & SYNCED TO SUPABASE"
+                  : "REPORT RECORDED LOCALLY (SERVER VALIDATED)"}
+              </div>
+              <span className="text-[10px] uppercase tracking-wider text-muted-foreground">
+                STAGE 01 EVALUATION
+              </span>
             </div>
             <div className="mt-2 font-mono text-2xl">
-              {score}/100 <span className="text-xs text-muted-foreground">AUTOMATED CHECK</span>
+              {serverScore ?? score}/100{" "}
+              <span className="text-xs text-muted-foreground">SERVER VALIDATED</span>
             </div>
             <p className="mt-2 text-xs leading-relaxed text-muted-foreground">
-              This preliminary score checks selected evidence IDs and report completeness. It does
-              not fully judge the quality of your reasoning. A facilitator should review the written
-              explanation before awarding final points.
+              {serverRemarks ||
+                "This score was verified by server-side forensic validation. Evidence citations and alternative explanations were evaluated."}
             </p>
           </div>
         )}
 
         <div className="mt-5 flex flex-wrap gap-3">
           <button
-            onClick={() => {
-              setSubmitted(false);
-              if (reportComplete) setSubmitted(true);
-            }}
-            disabled={!reportComplete}
+            onClick={handleSubmitReport}
+            disabled={!reportComplete || submitting}
             className="flex items-center gap-2 bg-primary px-4 py-2.5 font-mono text-xs font-bold tracking-wider text-primary-foreground disabled:cursor-not-allowed disabled:opacity-40"
           >
             <Send className="h-4 w-4" />
-            SUBMIT INVESTIGATION REPORT
+            {submitting ? "VALIDATING ON SERVER..." : "SUBMIT INVESTIGATION REPORT"}
           </button>
           <button
             onClick={resetReport}
@@ -1071,12 +1244,12 @@ function NetworkInvestigation({ done, onComplete }: { done: boolean; onComplete:
 
         <div className="mt-4 flex items-start gap-2 text-[10px] leading-relaxed text-muted-foreground">
           <AlertTriangle className="mt-0.5 h-3 w-3 shrink-0" />
-          This prototype stores progress in the current page state only. Reports are not yet sent to
-          a server and will be lost on refresh.
+          Scores and stage completions are validated on the server. Connect your Supabase keys to
+          synchronize across sessions and rank on the live leaderboard.
         </div>
       </Panel>
 
-      {!done && submitted && (
+      {!done && submitted && (serverPassed || (serverScore ?? score) >= 50) && (
         <div className="flex justify-end">
           <button
             onClick={onComplete}

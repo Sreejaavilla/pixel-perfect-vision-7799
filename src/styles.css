@@ -149,9 +149,16 @@
 }
 
 @utility grid-bg {
-  background-image: linear-gradient(color-mix(in oklab, var(--border) 45%, transparent) 1px, transparent 1px),
+  background-image:
+    linear-gradient(color-mix(in oklab, var(--border) 45%, transparent) 1px, transparent 1px),
     linear-gradient(90deg, color-mix(in oklab, var(--border) 45%, transparent) 1px, transparent 1px);
   background-size: 32px 32px;
 }
-@utility glow { box-shadow: var(--glow); }
-@layer base { body { font-family: var(--font-sans); } }
+@utility glow {
+  box-shadow: var(--glow);
+}
+@layer base {
+  body {
+    font-family: var(--font-sans);
+  }
+}

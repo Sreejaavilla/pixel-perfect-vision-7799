@@ -530,6 +530,33 @@ export interface IncidentResponseState {
   };
 }
 
+export const INITIAL_RESPONSE_STATE: IncidentResponseState = {
+  phase1: {
+    selectedActionIds: [],
+    actionPriorities: {},
+    justification: "",
+  },
+  phase2: {
+    selectedSourceIds: [],
+    sourcePriorities: {},
+    custodian: "",
+    acquisitionMethod: "",
+    evidenceLockerLocation: "",
+    chainOfCustodyNotes: "",
+  },
+  phase3: {
+    scopeResponses: {},
+    selectedRecoveryStepIds: [],
+    recoveryPlanRationale: "",
+  },
+  phase4: {
+    decisionId: "",
+    classifications: {},
+    decisionRationale: "",
+    nextInvestigationSteps: "",
+  },
+};
+
 export interface IncidentResponseScoreBreakdown {
   containmentScore: number;
   preservationScore: number;

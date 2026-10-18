@@ -95,7 +95,7 @@ CREATE POLICY "Deny direct profile insertion"
 DROP POLICY IF EXISTS "Deny direct profile deletion" ON public.profiles;
 CREATE POLICY "Deny direct profile deletion"
   ON public.profiles FOR DELETE
-  WITH CHECK (false);
+  USING (false);
 
 -- ----------------------------------------------------------------------------
 -- 2. USER PROGRESS TABLE
@@ -138,7 +138,7 @@ CREATE POLICY "Deny direct client progress update"
 DROP POLICY IF EXISTS "Deny direct client progress deletion" ON public.user_progress;
 CREATE POLICY "Deny direct client progress deletion"
   ON public.user_progress FOR DELETE
-  WITH CHECK (false);
+  USING (false);
 
 -- ----------------------------------------------------------------------------
 -- 3. STAGE SUBMISSIONS TABLE (Authoritative Audit Log of Evaluated Attempts)
@@ -184,7 +184,7 @@ CREATE POLICY "Deny direct client submission update"
 DROP POLICY IF EXISTS "Deny direct client submission deletion" ON public.stage_submissions;
 CREATE POLICY "Deny direct client submission deletion"
   ON public.stage_submissions FOR DELETE
-  WITH CHECK (false);
+  USING (false);
 
 -- ----------------------------------------------------------------------------
 -- 4. PRIVACY-HARDENED LEADERBOARD VIEW

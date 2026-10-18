@@ -56,6 +56,19 @@ describe("Database Schema & Security RLS Integrity", () => {
     expect(schemaSql).toContain('CREATE POLICY "Deny direct client submission deletion"');
   });
 
+  it("uses valid USING clauses for deny-all DELETE policies", () => {
+    const deletePolicies = Array.from(
+      schemaSql.matchAll(/ON public\.\w+ FOR DELETE\s+([\s\S]*?);/g),
+      (match) => match[1] || "",
+    );
+
+    expect(deletePolicies).toHaveLength(3);
+    for (const policy of deletePolicies) {
+      expect(policy).toContain("USING (false)");
+      expect(policy).not.toContain("WITH CHECK");
+    }
+  });
+
   it("hardens leaderboard_view against leaking user UUIDs, roles, or email addresses", () => {
     const viewMatch = schemaSql.match(
       /CREATE VIEW public\.leaderboard_view AS([\s\S]*?)FROM public\.profiles/,

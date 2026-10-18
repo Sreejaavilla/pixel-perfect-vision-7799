@@ -6,7 +6,15 @@
 // You can pass additional config via defineConfig({ vite: { ... }, etc... }) if needed.
 import { defineConfig } from "@lovable.dev/vite-tanstack-config";
 
+// This wrapper forwards Nitro options. Keep the Cloudflare preset's
+// code-splitting mode consistent with Nitro's bundle settings.
+const nitroOptions = {
+  preset: "cloudflare-module" as const,
+  inlineDynamicImports: false,
+};
+
 export default defineConfig({
+  nitro: nitroOptions,
   tanstackStart: {
     // Redirect TanStack Start's bundled server entry to src/server.ts (our SSR error wrapper).
     // nitro/vite builds from this
